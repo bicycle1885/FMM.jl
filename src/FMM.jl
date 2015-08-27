@@ -94,48 +94,73 @@ function extend(read, s, genome, t, forward)
     @assert read[s] == genome[t]
     a = read
     b = genome
+    gap_open   = Float32(3.0 + 5.0)
+    gap_extend = Float32(3.0)
     if forward
         let
             ra = IntRange{true}(s, endof(a))
             rb = IntRange{true}(t, t + length(ra) - 1)
-            return extend(a, ra, b, rb)
+            return align(a, ra, b, rb, gap_open, gap_extend)
         end
     else
         let
             ra = IntRange{false}(s, 1)
             rb = IntRange{false}(t, t - (length(ra) - 1))
-            return extend(a, ra, b, rb)
+            return align(a, ra, b, rb, gap_open, gap_extend)
         end
     end
 end
 
-function extend(a, ra, b, rb)
+"""
+Align a short read `a[ra]` to a genome sequence `b[rb]` using affine penalty.
+"""
+function align(a, ra, b, rb, gap_open, gap_extend)
     m = length(ra)
     n = length(rb)
     model = MyScore
-    mtx = Bio.Align.DPMatrix{Float64}(m, n)
-    Bio.Align.fitsize!(mtx, m, n)
-    # Needleman-Wunsch algorithm
-    mtx[0,0] = 0
+    # best scores for each prefix combinations: (a[ra[1:i]], b[rb[1:j]])
+    H = Bio.Align.DPMatrix{Float32}(m, n)
+    E = Bio.Align.DPMatrix{Float32}(m, n)
+    F = Bio.Align.DPMatrix{Float32}(m, n)
+    Bio.Align.fitsize!(H, m, n)
+    Bio.Align.fitsize!(E, m, n)
+    Bio.Align.fitsize!(F, m, n)
+    # Gotoh's algorithm
+    H[0,0] = 0
     # copy sequence `a` to an unpacked vector for fast access
     tmp_a = Vector{DNANucleotide}(m)
     for i in 1:m
         a_ra_i = tmp_a[i] = a[ra[i]]
-        mtx[i,0] = mtx[i-1,0] + model[a_ra_i,GAP]
+        H[i,0] = -(gap_open + gap_extend * (i - 1))
+        E[i,0] = typemin(Float32)
     end
+    best_score = typemin(Float32)
     @inbounds for j in 1:n
         b_rb_j = b[rb[j]]
-        mtx[0,j] = mtx[0,j-1] + model[GAP,b_rb_j]
+        H[0,j] = -(gap_open + gap_extend * (j - 1))
+        F[0,j] = typemin(Float32)
         for i in 1:m
-            a_ra_i = tmp_a[i]
-            mtx[i,j] = max(
-                mtx[i-1,j-1] + model[a_ra_i,b_rb_j],
-                mtx[i-1,j  ] + model[a_ra_i,GAP   ],
-                mtx[i,  j-1] + model[GAP   ,b_rb_j]
+            E[i,j] = smax(
+                E[i,j-1] - gap_extend,
+                H[i,j-1] - gap_open
+            )
+            F[i,j] = smax(
+                F[i-1,j] - gap_extend,
+                H[i-1,j] - gap_open
+            )
+            H[i,j] = max(
+                E[i,j],
+                F[i,j],
+                H[i-1,j-1] + model[tmp_a[i],b_rb_j]
             )
         end
+        best_score = max(H[m,j], best_score)
     end
-    return mtx[end,end]
+    return best_score
+end
+
+@inline function smax(x, y)
+    ifelse(x > y, x, y)
 end
 
 function alignment_score(read, sp, genome, sp′, k)
