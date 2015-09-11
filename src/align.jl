@@ -25,6 +25,91 @@ type Alignment
     score::Float64
 end
 
+function call(::Type{Alignment})
+    return Alignment(-Inf)
+end
+
+# state of alignment of a read
+type ReadState
+    # read
+    read::DNASequence
+    # SA ranges of seed hits
+    ranges::Vector{UnitRange{Int}}
+    # the number of hits
+    n_hits::Int
+    # alignment status
+    isaligned::Bool
+    # best alignment
+    alignment::Alignment
+    function ReadState()
+        new(DNASequence(), [], 0, false, Alignment())
+    end
+end
+
+function setread!(rs::ReadState, read)
+    rs.read = read
+    empty!(rs.ranges)
+    rs.n_hits = 0
+    rs.isaligned = false
+    rs.alignment = Alignment()
+    return rs
+end
+
+function set_seed_size!(rs::ReadState, n)
+    resize!(rs.ranges, n)
+    return rs
+end
+
+function endof(rs::ReadState)
+    return endof(rs.ranges)
+end
+
+function getindex(rs::ReadState, i::Integer)
+    return rs.ranges[i]
+end
+
+function setindex!(rs::ReadState, range::UnitRange, i::Integer)
+    rs.ranges[i] = range
+    rs.n_hits += length(range)
+    return rs
+end
+
+function hashit(rs::ReadState)
+    rs.n_hits > 0
+end
+
+function isaligned(rs::ReadState)
+    rs.isaligned
+end
+
+function alignment(rs::ReadState)
+    if !isaligned(rs)
+        error("this read is not aligned")
+    end
+    return rs.alignment
+end
+
+function choice(rs::ReadState)
+    @assert hashit(rs)
+    # TODO: sampling without replacement
+    r = rand()
+    s = 0.0
+    for i in 1:endof(rs)
+        s += length(rs[i]) / rs.n_hits
+        if s ≥ r
+            return i
+        end
+    end
+    return endof(rs)
+end
+
+# state and working space
+type AlignmentState
+    # read counter
+    count::Int
+    read_state::ReadState
+end
+
 # simple and fast consecutive range
 # IntRange{true}  => forward
 # IntRange{false} => backward
@@ -43,7 +128,7 @@ length(ir::IntRange{false}) = ir.start - ir.stop + 1
 immutable MyScoreModel; end
 #@inline Base.getindex(::MyScoreModel, ::Character, ::Type{GAP}) = -3.0
 #@inline Base.getindex(::MyScoreModel, ::Type{GAP}, ::Character) = -3.0
-@inline Base.getindex(::MyScoreModel, x::Character, y::Character) = ifelse(x === y, 0.0, -3.0)
+@inline Base.getindex(::MyScoreModel, x::Character, y::Character) = ifelse(x === y, 0.0f0, -3.0f0)
 const MyScore = MyScoreModel()
 
 function extend(read, s, genome, t, forward, current_best_score)
@@ -113,12 +198,13 @@ function align(a, ra, b, rb, gap_open, gap_extend, current_best_score)
         best_score = max(H[m,j], best_score)
         if best_score < current_best_score
             # cannot improve the current best score
-            #return best_score
+            return best_score
         end
     end
     return best_score
 end
 
+# faster and simpler `max` function, but not safe
 @inline function smax(x, y)
     ifelse(x > y, x, y)
 end
@@ -130,35 +216,36 @@ function alignment_score(read, sp, genome, sp′, k, current_best_score)
     return fscore + bscore
 end
 
-function align_read{T,k}(read, index::GenomeIndex{T,k}, profile, ranges, weight)
+function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
+    read = rs.read
     slen = profile.seed_length
     interval = profile.seed_interval
     n_seeds = fld(length(read) - slen, interval) + 1
-    resize!(ranges, n_seeds)
-    n_hits = 0
+    set_seed_size!(rs, n_seeds)
     for i in 1:n_seeds
         seed = read[(i-1)*interval+1:(i-1)*interval+slen]
         if hasn(seed)
             # seeds containing N cannot be used to exact maching
-            ranges[i] = 0:-1
+            rs[i] = 0:-1
         else
             kmer = convert(Kmer{DNANucleotide,k}, seed[end-k+1:end])
             init_range = convert(UnitRange{Int}, index.sa_table[kmer])
             range = FMIndices.sa_range(seed[1:end-k], index.fmindex, init_range)
-            #range′ = FMIndices.sa_range(seed, index.fmindex)
-            #@assert range == range′
-            ranges[i] = range
-            n_hits += length(range)
+            #@assert range == FMIndices.sa_range(seed, index.fmindex)
+            rs[i] = range
         end
     end
-    if n_hits == 0
+
+    if !hashit(rs)
         # no clue
-        return Nullable{Alignment}()
+        return rs
     end
+
+    # find best alignment from matching seeds
     best_score = -Inf
-    if n_hits ≤ profile.max_consective_fails
-        for i in 1:endof(ranges)
-            range = ranges[i]
+    if rs.n_hits ≤ profile.max_consective_fails
+        for i in 1:endof(rs)
+            range = rs[i]
             for j in 1:length(range)
                 sp = (i - 1) * interval + 1
                 sp′ = FMIndices.sa_value(range[j], index.fmindex) + 1
@@ -167,18 +254,12 @@ function align_read{T,k}(read, index::GenomeIndex{T,k}, profile, ranges, weight)
             end
         end
     else
-        resize!(weight, n_seeds)
-        for i in 1:n_seeds
-            weight[i] = isempty(ranges[i]) ? 0.0 : length(ranges[i]) / n_hits
-        end
-        @assert sum(weight) ≈ 1.0
         seed_ext = profile.max_consective_fails
         while seed_ext > 0
-            # TODO sampling without replacement
             # select seed
-            i = choice(weight)
+            i = choice(rs)
             # select seed hit
-            range = ranges[i]
+            range = rs[i]
             j = rand(1:length(range))
             # run seed extension
             sp = (i - 1) * interval + 1
@@ -193,17 +274,8 @@ function align_read{T,k}(read, index::GenomeIndex{T,k}, profile, ranges, weight)
             end
         end
     end
-    return Nullable(Alignment(best_score))
-end
-
-function choice(weight)
-    r = rand()
-    s = 0.0
-    for i in 1:endof(weight)
-        s += weight[i]
-        if s ≥ r
-            return i
-        end
-    end
-    return endof(weight)
+    rs.isaligned = true
+    # TODO backtracking to calculate alignment
+    rs.alignment = Alignment(best_score)
+    return rs
 end

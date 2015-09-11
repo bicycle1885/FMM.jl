@@ -2,7 +2,10 @@ module FMM
 
 import Base:
     getindex,
-    length
+    setindex!,
+    length,
+    endof
+
 
 using Bio.Seq
 using Bio.Align
@@ -25,13 +28,13 @@ function run_alignment(index, read_file)
         seed_interval=ceil(Int, 1 + 1.15 * sqrt(100)),
         max_consective_fails=15
     )
-    # preallocated working space
-    ranges = Vector{UnitRange{Int}}(0)
-    weight = Vector{Float64}(0)
+    readstate = ReadState()
     t = @elapsed for rec in reads
-        read = rec.seq
-        aln = align_read(rec.seq, index, profile, ranges, weight)
-        println(aln)
+        setread!(readstate, rec.seq)
+        align_read!(readstate, index, profile)
+        if isaligned(readstate)
+            println(alignment(readstate))
+        end
     end
     info(t, "s")
 end
