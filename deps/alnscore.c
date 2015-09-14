@@ -60,8 +60,47 @@ const params_t default_params = {
 // align 8 sequences in parallel (= 128-bit register / 16-bit score type)
 const int N_PAR = 8;
 
-int alignment_score(const params_t* params, const dnaseq_t query, const dnaseq_t* seqs, score_t* scores)
+// working space
+typedef struct buffer_s
 {
+    void* buf;
+    size_t len;
+} buffer_t;
+
+buffer_t* make_buffer()
+{
+    buffer_t* buffer = malloc(sizeof(buffer_t));
+    buffer->buf = NULL;
+    buffer->len = 0;
+    return buffer;
+}
+
+int expand_buffer(buffer_t* buffer, size_t sz)
+{
+    if (buffer->len >= sz)
+        return 0;
+    void* buf = malloc_a16(sz);
+    if (buf == NULL)
+        return 1;
+    free(buffer->buf);
+    buffer->buf = buf;
+    buffer->len = sz;
+    return 0;
+}
+
+void free_buffer(buffer_t* buffer)
+{
+    free(buffer->buf);
+    free(buffer);
+}
+
+int alignment_score(buffer_t* buffer, const params_t* params, const dnaseq_t query, const dnaseq_t* seqs, int n_seqs, score_t* scores)
+{
+    if (n_seqs == 0)
+        return 0;
+    else if (n_seqs < 0 || n_seqs > N_PAR)
+        return 1;
+
     // read params
     if (params == NULL)
         params = &default_params;
@@ -72,15 +111,22 @@ int alignment_score(const params_t* params, const dnaseq_t query, const dnaseq_t
 
     // check length
     size_t len = seqlen(seqs[0]);
-    for (size_t n = 1; n < N_PAR; n++)
+    for (size_t n = 1; n < n_seqs; n++)
         if (seqlen(seqs[n]) != len)
             return 1;
 
     // allocate working space
     size_t qlen = seqlen(query);
-    size_t column_bytes = sizeof(__m128i) * (qlen + 1);
-    size_t profile_bytes = sizeof(__m128i) * n_nucs * len;
-    __m128i* columnH = malloc_a16(column_bytes * 2 + profile_bytes);
+    if (qlen == 0) {
+        for (size_t n = 0; n < n_seqs; n++)
+            scores[n] = 0;
+        return 0;
+    }
+    size_t column_size = sizeof(__m128i) * (qlen + 1);
+    size_t profile_size = sizeof(__m128i) * n_nucs * len;
+    if (expand_buffer(buffer, column_size * 2 + profile_size))
+        return 1;
+    __m128i* columnH = buffer->buf;
     __m128i* columnE = columnH + (qlen + 1);
     __m128i* profile = columnE + (qlen + 1);
     if (columnH == NULL)
@@ -90,7 +136,7 @@ int alignment_score(const params_t* params, const dnaseq_t query, const dnaseq_t
     for (size_t j = 0; j < len; j++) {
         for (uint8_t nt = 0; nt < n_nucs; nt++) {
             score_t P[N_PAR];
-            for (size_t n = 0; n < N_PAR; n++)
+            for (size_t n = 0; n < n_seqs; n++)
                 P[n] = nt == seqs[n].seq[j] ? matching_score : mismatching_score;
             // set profile
             _mm_store_si128(
@@ -142,9 +188,6 @@ int alignment_score(const params_t* params, const dnaseq_t query, const dnaseq_t
 
     // save best scores
     _mm_store_si128((__m128i*)scores, maxH);
-
-    // free working space
-    free(columnH);
 
     return 0;
 }

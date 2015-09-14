@@ -1,6 +1,6 @@
 # concatenated chromosomes
 immutable Genome
-    seq::NucleotideSequence
+    seq::DNASequence
     names::Vector{ASCIIString}
     offsets::Vector{Int}
 end
@@ -18,9 +18,22 @@ function load_genome(fasta)
 end
 
 length(genome::Genome) = length(genome.seq)
+endof(genome::Genome)  = length(genome.seq)
 
 @inline function getindex(genome::Genome, i::Integer)
     return genome.seq[i]
+end
+
+function copy_nucleotides(genome::Genome, startpos::Integer, stoppos::Integer)
+    len = abs(stoppos - startpos) + 1
+    nucs = Vector{DNANucleotide}(len)
+    step = startpos < stoppos ? 1 : -1
+    j = startpos
+    for i in 1:len
+        nucs[i] = genome.seq[j]
+        j += step
+    end
+    return nucs
 end
 
 function locus(genome::Genome, i::Integer)

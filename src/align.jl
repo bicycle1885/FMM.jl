@@ -1,106 +1,29 @@
+using StatsBase: WeightVec, sample
+
 # alignment profile
-immutable Profile
+type Profile
     seed_length::Int
     seed_interval::Int
-    max_consective_fails::Int
+    max_trials_per_seedhit::Int
+    score_params::ScoreParams
     function Profile(;kwargs...)
-        local seed_length, seed_interval, max_consective_fails
-        for (kw, arg) in kwargs
-            if kw === :seed_length
-                seed_length = arg
-            elseif kw === :seed_interval
-                seed_interval = arg
-            elseif kw === :max_consective_fails
-                max_consective_fails = arg
-            else
-                error("unknown parameter: $kw")
-            end
-        end
-        return new(seed_length, seed_interval, max_consective_fails)
+        dict = Dict(kwargs)
+        seed_length = dict[:seed_length]
+        seed_interval = dict[:seed_interval]
+        max_trials_per_seedhit = dict[:max_trials_per_seedhit]
+        score_params = ScoreParams(
+            dict[:matching_score],
+            dict[:mismatching_score],
+            dict[:gap_open_penalty],
+            dict[:gap_ext_penalty]
+        )
+        return new(
+            seed_length,
+            seed_interval,
+            max_trials_per_seedhit,
+            score_params
+        )
     end
-end
-
-# mock
-type Alignment
-    score::Float64
-end
-
-function call(::Type{Alignment})
-    return Alignment(-Inf)
-end
-
-# state of alignment of a read
-type ReadState
-    # read
-    read::DNASequence
-    # SA ranges of seed hits
-    ranges::Vector{UnitRange{Int}}
-    # the number of hits
-    n_hits::Int
-    # alignment status
-    isaligned::Bool
-    # best alignment
-    alignment::Alignment
-    function ReadState()
-        new(DNASequence(), [], 0, false, Alignment())
-    end
-end
-
-function setread!(rs::ReadState, read)
-    rs.read = read
-    empty!(rs.ranges)
-    rs.n_hits = 0
-    rs.isaligned = false
-    rs.alignment = Alignment()
-    return rs
-end
-
-function set_seed_size!(rs::ReadState, n)
-    resize!(rs.ranges, n)
-    return rs
-end
-
-function endof(rs::ReadState)
-    return endof(rs.ranges)
-end
-
-function getindex(rs::ReadState, i::Integer)
-    return rs.ranges[i]
-end
-
-function setindex!(rs::ReadState, range::UnitRange, i::Integer)
-    rs.ranges[i] = range
-    rs.n_hits += length(range)
-    return rs
-end
-
-function hashit(rs::ReadState)
-    rs.n_hits > 0
-end
-
-function isaligned(rs::ReadState)
-    rs.isaligned
-end
-
-function alignment(rs::ReadState)
-    if !isaligned(rs)
-        error("this read is not aligned")
-    end
-    return rs.alignment
-end
-
-function choice(rs::ReadState)
-    @assert hashit(rs)
-    # TODO: sampling without replacement
-    r = rand()
-    s = 0.0
-    for i in 1:endof(rs)
-        s += length(rs[i]) / rs.n_hits
-        if s ≥ r
-            return i
-        end
-    end
-    return endof(rs)
 end
 
 # state and working space
@@ -123,13 +46,6 @@ length(ir::IntRange{false}) = ir.start - ir.stop + 1
 @inline getindex(ir::IntRange{true}, i::Integer)  = ir.start + (i - 1)
 @inline getindex(ir::IntRange{false}, i::Integer) = ir.start - (i - 1)
 
-
-# simple scoring model
-immutable MyScoreModel; end
-#@inline Base.getindex(::MyScoreModel, ::Character, ::Type{GAP}) = -3.0
-#@inline Base.getindex(::MyScoreModel, ::Type{GAP}, ::Character) = -3.0
-@inline Base.getindex(::MyScoreModel, x::Character, y::Character) = ifelse(x === y, 0.0f0, -3.0f0)
-const MyScore = MyScoreModel()
 
 function extend(read, s, genome, t, forward, current_best_score)
     @assert read[s] == genome[t]
@@ -216,66 +132,128 @@ function alignment_score(read, sp, genome, sp′, k, current_best_score)
     return fscore + bscore
 end
 
+function fill_sequences_left(genome, seedhit)
+    for hit in seedhit
+    end
+end
+
 function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     read = rs.read
     slen = profile.seed_length
     interval = profile.seed_interval
     n_seeds = fld(length(read) - slen, interval) + 1
-    set_seed_size!(rs, n_seeds)
     for i in 1:n_seeds
-        seed = read[(i-1)*interval+1:(i-1)*interval+slen]
+        seed_range = (i-1)*interval+1:(i-1)*interval+slen
+        seed = read[seed_range]
         if hasn(seed)
             # seeds containing N cannot be used to exact maching
-            rs[i] = 0:-1
+            continue
         else
-            kmer = convert(Kmer{DNANucleotide,k}, seed[end-k+1:end])
-            init_range = convert(UnitRange{Int}, index.sa_table[kmer])
-            range = FMIndices.sa_range(seed[1:end-k], index.fmindex, init_range)
-            #@assert range == FMIndices.sa_range(seed, index.fmindex)
-            rs[i] = range
+            if length(seed) ≥ k
+                kmer = convert(Kmer{DNANucleotide,k}, seed[end-k+1:end])
+                init_range::UnitRange{Int} = index.sa_table[kmer]
+                sa_range = FMIndices.sa_range(seed[1:end-k], index.fmindex, init_range)
+                #@assert sa_range == FMIndices.sa_range(seed, index.fmindex)
+            else
+                sa_range = FMIndices.sa_range(seed, index.fmindex)
+            end
+            if !isempty(sa_range)
+                push!(rs, SeedHit(seed_range, sa_range))
+            end
         end
     end
 
     if !hashit(rs)
         # no clue
+        rs.isaligned = false
         return rs
     end
 
     # find best alignment from matching seeds
-    best_score = -Inf
-    if rs.n_hits ≤ profile.max_consective_fails
-        for i in 1:endof(rs)
-            range = rs[i]
-            for j in 1:length(range)
-                sp = (i - 1) * interval + 1
-                sp′ = FMIndices.sa_value(range[j], index.fmindex) + 1
-                score = alignment_score(read, sp, index.genome, sp′, slen, best_score)
-                best_score = max(score, best_score)
-            end
+    best_score = typemin(Score)
+    if n_hits(rs) ≤ profile.max_trials_per_seedhit
+        # try all seed hits
+        for seedhit in rs
+            alignment_scores!(rs, seedhit, index, profile.score_params, profile.max_trials_per_seedhit)
+            best_score = max(maximum(rs.scores), best_score)
         end
     else
-        seed_ext = profile.max_consective_fails
-        while seed_ext > 0
-            # select seed
-            i = choice(rs)
-            # select seed hit
-            range = rs[i]
-            j = rand(1:length(range))
-            # run seed extension
-            sp = (i - 1) * interval + 1
-            sp′ = FMIndices.sa_value(range[j], index.fmindex) + 1
-            score = alignment_score(read, sp, index.genome, sp′, slen, best_score)
-            if score > best_score
-                best_score = score
-                seed_ext = profile.max_consective_fails
-            else
-                # seed extension failed
-                seed_ext -= 1
-            end
+        n_seedhits = length(rs.seedhits)
+        wv = Vector{Float32}(n_seedhits)
+        for i in 1:endof(rs.seedhits)
+            wv[i] = 1 / count(rs.seedhits[i])
+        end
+        for seedhit in sample(rs.seedhits, WeightVec(wv), n_seedhits, replace=false)
+            alignment_scores!(rs, seedhit, index, profile.score_params, profile.max_trials_per_seedhit)
+            best_score = max(maximum(rs.scores), best_score)
         end
     end
+
     rs.isaligned = true
     # TODO backtracking to calculate alignment
     rs.alignment = Alignment(best_score)
     return rs
+end
+
+# calculate alignment scores of all hit locations
+function alignment_scores!(rs::ReadState, seedhit::SeedHit, index, params, max_trials_per_seedhit)
+    # allocate space for scores
+    n_hits = count(seedhit)
+    if n_hits ≤ max_trials_per_seedhit
+        idx = [1:n_hits;]
+    else
+        # sample seed hit locations
+        idx = sample(1:n_hits, max_trials_per_seedhit, replace=false)
+        n_hits = max_trials_per_seedhit
+    end
+    resize_scores!(rs, n_hits)
+    reset_scores!(rs)
+    prepare_alignment!(rs, N_PAR)
+
+    if seed_start(seedhit) > 1
+        # align left side of the read
+        unpack_read!(rs, 1, seed_start(seedhit) - 1)
+        i = 0
+        while i < n_hits
+            start_i = i
+            n_filled = 0
+            # fill as many genome sequences as possible (i.e. up to N_PAR)
+            while i < n_hits && n_filled < N_PAR
+                loc = FMIndices.sa_value(seedhit[idx[i+=1]], index.fmindex) + 1
+                startpos = loc - 1
+                stoppos = startpos - length(rs.rseq)
+                unpack_genome!(rs, n_filled += 1, index.genome, startpos, stoppos)
+            end
+            alignment_scores!(rs.tmp_scores, params, rs.rseq, rs.dnaseqs, n_filled)
+            for j in 1:n_filled
+                rs.scores[start_i+j] += rs.tmp_scores[j]
+            end
+        end
+    end
+
+    # add scores of exact matching
+    for i in 1:n_hits
+        rs.scores[i] += params.matching_score
+    end
+
+    if seed_stop(seedhit) < length(rs.read)
+        # align right size of the read
+        unpack_read!(rs, seed_stop(seedhit) + 1, length(rs.read))
+        i = 0
+        while i < n_hits
+            start_i = i
+            n_filled = 0
+            # fill as many genome sequences as possible (i.e. up to N_PAR)
+            while i < n_hits && n_filled < N_PAR
+                loc = FMIndices.sa_value(seedhit[idx[i+=1]], index.fmindex) + 1
+                startpos = loc + seed_length(seedhit)
+                stoppos = startpos + length(rs.rseq)
+                unpack_genome!(rs, n_filled += 1, index.genome, startpos, stoppos)
+            end
+            alignment_scores!(rs.tmp_scores, params, rs.rseq, rs.dnaseqs, n_filled)
+            for j in 1:n_filled
+                rs.scores[start_i+j] += rs.tmp_scores[j]
+            end
+        end
+    end
 end
