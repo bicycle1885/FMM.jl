@@ -1,31 +1,5 @@
 using StatsBase: WeightVec, sample
 
-# alignment profile
-type Profile
-    seed_length::Int
-    seed_interval::Int
-    max_trials_per_seedhit::Int
-    score_params::ScoreParams
-    function Profile(;kwargs...)
-        dict = Dict(kwargs)
-        seed_length = dict[:seed_length]
-        seed_interval = dict[:seed_interval]
-        max_trials_per_seedhit = dict[:max_trials_per_seedhit]
-        score_params = ScoreParams(
-            dict[:matching_score],
-            dict[:mismatching_score],
-            dict[:gap_open_penalty],
-            dict[:gap_ext_penalty]
-        )
-        return new(
-            seed_length,
-            seed_interval,
-            max_trials_per_seedhit,
-            score_params
-        )
-    end
-end
-
 # state and working space
 type AlignmentState
     # read counter
@@ -130,11 +104,6 @@ function alignment_score(read, sp, genome, sp′, k, current_best_score)
     bscore = extend(read, sp, genome, sp′, false, current_best_score)
     # NOTE: maching score is assumed to be zero
     return fscore + bscore
-end
-
-function fill_sequences_left(genome, seedhit)
-    for hit in seedhit
-    end
 end
 
 function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)

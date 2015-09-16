@@ -3,20 +3,19 @@ module FMM
 importall Base
 
 using Bio.Seq
-#using Bio.Align
 using IntArrays
 using FMIndices
 import Bio
-#import Bio.Align: Character
 
 include("index.jl")
 include("alignscore.jl")
+include("profile.jl")
 include("readstate.jl")
 include("align.jl")
 
 function run_alignment(index, read_file)
     # same as --sensitive option of Bowtie2 if nt = 100
-    profile = Profile(
+    profile = AlignmentProfile(
         # seed search
         seed_length=22,
         seed_interval=ceil(Int, 1 + 1.15 * sqrt(100)),

@@ -1,10 +1,10 @@
 # mock
 type Alignment
-    score::Float64
+    score::Score
 end
 
 function call(::Type{Alignment})
-    return Alignment(-Inf)
+    return Alignment(typemin(Score))
 end
 
 #          |<-- seed hit -->|
