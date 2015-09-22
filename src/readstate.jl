@@ -167,34 +167,3 @@ function Base.next(iter::SeedHitIterator, i)
     seedhits = iter.forward ? iter.rs.seedhits : iter.rs.seedhits′
     seedhits[i], i + 1
 end
-
-
-# sequence unpacking
-
-function unpack_left_read!(rs::ReadState, seedhit)
-    read = isforward(seedhit) ? rs.read : rs.read′
-    unpack_seq!(rs.rseq, read, seed_start(seedhit) - 1, 1)
-end
-
-function unpack_right_read!(rs::ReadState, seedhit)
-    read = isforward(seedhit) ? rs.read : rs.read′
-    unpack_seq!(rs.rseq, read, seed_stop(seedhit) + 1, endof(read))
-end
-
-function unpack_genome!(rs::ReadState, i, genome, startpos, stoppos)
-    unpack_seq!(rs.gseqs[i], genome, startpos, stoppos)
-    rs.dnaseqs[i] = DNASeq(rs.gseqs[i])
-end
-
-function unpack_seq!(dst, src, startpos, stoppos)
-    len = abs(startpos - stoppos) + 1
-    resize!(dst, len)
-    step = startpos ≤ stoppos ? 1 : -1
-    i = 0
-    j = startpos
-    @inbounds while i < len
-        dst[i+=1] = src[j]
-        j += step
-    end
-    return dst
-end

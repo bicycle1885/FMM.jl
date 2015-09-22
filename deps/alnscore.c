@@ -129,8 +129,6 @@ int alignment_score(buffer_t* buffer, const params_t* params, const dnaseq_t que
     __m128i* columnH = buffer->buf;
     __m128i* columnE = columnH + (qlen + 1);
     __m128i* profile = columnE + (qlen + 1);
-    if (columnH == NULL)
-        return 1;
 
     // initialize profile
     for (size_t j = 0; j < len; j++) {
@@ -175,8 +173,10 @@ int alignment_score(buffer_t* buffer, const params_t* params, const dnaseq_t que
                 _mm_subs_epi16(columnH[i-1], gap_open)
             );
             __m128i P = *(prof + qseq[i-1]);
-            H = _mm_max_epi16(E, F);
-            H = _mm_max_epi16(H, _mm_adds_epi16(diagH, P));
+            H = _mm_max_epi16(
+                _mm_max_epi16(E, F),
+                _mm_adds_epi16(diagH, P)
+            );
             // update
             diagH = columnH[i];
             columnE[i] = E;
