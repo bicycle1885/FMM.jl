@@ -16,6 +16,8 @@ immutable SeedHit
     rrange::UnitRange{Int}
     # suffix array range
     sarange::UnitRange{Int}
+    # wheather forward or reverse complement
+    forward::Bool
 end
 
 seed_start(seedhit::SeedHit) = start(seedhit.rrange)
@@ -23,24 +25,46 @@ seed_stop(seedhit::SeedHit) = last(seedhit.rrange)
 seed_length(seedhit::SeedHit) = length(seedhit.rrange)
 count(seedhit::SeedHit) = length(seedhit.sarange)
 getindex(seedhit::SeedHit, i::Integer) = seedhit.sarange[i]
+isforward(seedhit::SeedHit) = seedhit.forward
+
+
+#              |<-left->|<-- seed hit -->|<-right->|
+# read:        ~~~~~~~~~^^^^^^^^^^^^^^^^^^~~~~~~~~~~
+# genome: --------------------------------------------------
+#                       ^
+#                       location
+immutable SeedHitExt
+    seedhit::SeedHit
+    # genome location
+    location::Int
+    # alignment scores
+    lscore::Score  # left
+    hscore::Score  # seedhit
+    rscore::Score  # right
+end
+
+total_score(x::SeedHitExt) = x.lscore + x.hscore + x.rscore
 
 
 # alignment state of a read
 type ReadState
     # read
     read::DNASequence
+    read′::DNASequence
     # exact seed hits
     seedhits::Vector{SeedHit}
+    seedhits′::Vector{SeedHit}
     # the number of hits
     n_hits::Int
+    n_hits′::Int
+    # best alignments
+    best::SmallPQueue{Score,SeedHitExt}
     # alignment status
     isaligned::Bool
     # best alignment
     alignment::Alignment
     # alignment score cache
     scores::Vector{Score}
-    # temporary score cache
-    tmp_scores::Vector{Score}
     # unpacked read sequence cache
     rseq::Vector{DNANucleotide}
     # unpacked genome sequence cache
@@ -48,37 +72,50 @@ type ReadState
     # DNASeqs
     dnaseqs::Vector{DNASeq}
     function ReadState()
-        new(DNASequence(), [], 0, false, Alignment(), [], [], [], [], [])
+        new(
+            DNASequence(), DNASequence(), [], [], 0, 0,
+            SmallPQueue{Score,SeedHitExt}(5),
+            false,
+            Alignment(), [], [], [], [],
+        )
     end
 end
 
 function setread!(rs::ReadState, read)
     rs.read = read
+    rs.read′ = reverse_complement(read)
     empty!(rs.seedhits)
+    empty!(rs.seedhits′)
     rs.n_hits = 0
+    rs.n_hits′ = 0
+    empty!(rs.best)
     rs.isaligned = false
     rs.alignment = Alignment()
     return rs
 end
 
+# forward / reverse complement
+forward_read(rs::ReadState) = rs.read
+reverse_read(rs::ReadState) = rs.read′
+
 function push!(rs::ReadState, hit::SeedHit)
-    push!(rs.seedhits, hit)
-    rs.n_hits += count(hit)
+    if isforward(hit)
+        push!(rs.seedhits, hit)
+        rs.n_hits += count(hit)
+    else
+        push!(rs.seedhits′, hit)
+        rs.n_hits′ += count(hit)
+    end
     return rs
 end
 
-function n_hits(rs::ReadState)
-    rs.n_hits
+function n_total_hits(rs::ReadState)
+    rs.n_hits + rs.n_hits′
 end
 
 function hashit(rs::ReadState)
-    rs.n_hits > 0
+    rs.n_hits + rs.n_hits′ > 0
 end
-
-# iterate over seed hits
-start(rs::ReadState) = 1
-done(rs::ReadState, i) = i > endof(rs.seedhits)
-next(rs::ReadState, i) = rs.seedhits[i], i + 1
 
 function isaligned(rs::ReadState)
     rs.isaligned
@@ -100,14 +137,48 @@ function reset_scores!(rs::ReadState)
 end
 
 function prepare_alignment!(rs::ReadState, n)
-    resize!(rs.tmp_scores, n)
     resize!(rs.gseqs, n)
     resize!(rs.dnaseqs, n)
     fill!(rs.gseqs, DNANucleotide[])
 end
 
-function unpack_read!(rs::ReadState, startpos, stoppos)
-    unpack_seq!(rs.rseq, rs.read, startpos, stoppos)
+
+# seedhit iterator
+
+immutable SeedHitIterator
+    rs::ReadState
+    forward::Bool
+end
+
+function each_forward_seedhit(rs::ReadState)
+    return SeedHitIterator(rs, true)
+end
+
+function each_reverse_seedhit(rs::ReadState)
+    return SeedHitIterator(rs, false)
+end
+
+Base.start(iter::SeedHitIterator) = 1
+function Base.done(iter::SeedHitIterator, i)
+    seedhits = iter.forward ? iter.rs.seedhits : iter.rs.seedhits′
+    i > endof(seedhits)
+end
+function Base.next(iter::SeedHitIterator, i)
+    seedhits = iter.forward ? iter.rs.seedhits : iter.rs.seedhits′
+    seedhits[i], i + 1
+end
+
+
+# sequence unpacking
+
+function unpack_left_read!(rs::ReadState, seedhit)
+    read = isforward(seedhit) ? rs.read : rs.read′
+    unpack_seq!(rs.rseq, read, seed_start(seedhit) - 1, 1)
+end
+
+function unpack_right_read!(rs::ReadState, seedhit)
+    read = isforward(seedhit) ? rs.read : rs.read′
+    unpack_seq!(rs.rseq, read, seed_stop(seedhit) + 1, endof(read))
 end
 
 function unpack_genome!(rs::ReadState, i, genome, startpos, stoppos)
@@ -126,18 +197,4 @@ function unpack_seq!(dst, src, startpos, stoppos)
         j += step
     end
     return dst
-end
-
-function choice(rs::ReadState)
-    @assert hashit(rs)
-    # TODO: sample without replacement
-    r = rand()
-    s = 0.0
-    for i in 1:endof(rs.seedhits)
-        s += length(rs.seedhits[i].sarange) / rs.n_hits
-        if s ≥ r
-            return i
-        end
-    end
-    return endof(rs.seedhits)
 end

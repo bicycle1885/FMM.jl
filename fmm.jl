@@ -35,7 +35,7 @@ function run_align(genome_file, read_file)
         seed_length=22,
         seed_interval=ceil(Int, 1 + 1.15 * sqrt(100)),
         # effort limits
-        #max_consective_fails=15,
+        #max_trials_per_seedhit=4 * FMM.N_PAR,
         max_trials_per_seedhit=4 * FMM.N_PAR,
         # alignment scores
         matching_score=0,
@@ -45,9 +45,9 @@ function run_align(genome_file, read_file)
     )
     index = open(deserialize, string(genome_file, ".index"))
     FMM.run_alignment(profile, index, read_file)
-    FMM.run_alignment(profile, index, read_file)
-    @profile FMM.run_alignment(profile, index, read_file)
-    Profile.print(STDERR, format=:tree, cols=1000)
+    #FMM.run_alignment(profile, index, read_file)
+    #@profile FMM.run_alignment(profile, index, read_file)
+    #Profile.print(STDERR, format=:tree, cols=1000)
 end
 
 main()

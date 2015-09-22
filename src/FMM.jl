@@ -4,10 +4,12 @@ importall Base
 
 using Bio.Seq
 using IntArrays
-using FMIndices
+using FMIndexes
 import Bio
 
 include("index.jl")
+include("small_pque.jl")
+include("seediter.jl")
 include("alignscore.jl")
 include("profile.jl")
 include("readstate.jl")
@@ -23,12 +25,13 @@ function run_alignment(profile::AlignmentProfile, index, read_file)
         setread!(readstate, rec.seq)
         align_read!(readstate, index, profile)
         if isaligned(readstate)
-            println(alignment(readstate))
+            #println(alignment(readstate))
+            score, hit = readstate.best[1]
+            chr, loc = locus(index.genome, hit.location)
+            println(rec.name, '\t', chr, '\t', loc, '\t', score)
         end
     end
     info(t, "s")
-    global n_call
-    @show n_call
 end
 
 end # module

@@ -5,11 +5,11 @@ immutable Genome
     offsets::Vector{Int}
 end
 
-function load_genome(fasta)
+function load_genome(fastafile)
     seq = DNASequence()
     names = ASCIIString[]
     offsets = Int[]
-    for chr in read(fasta, FASTA)
+    for chr in open(fastafile, FASTA)
         push!(names, chr.name)
         push!(offsets, length(seq) + 1)
         seq *= chr.seq
@@ -72,14 +72,21 @@ immutable GenomeIndex{T,k}
     sa_table::SATable{T,k}
 end
 
-# fasta: stream of chromosomes
 # k: size of precomputed k-mer table
 # r: sampling interval of SA values
-function build_index(fasta, k::Int=12, r::Int=4)
-    genome = load_genome(fasta)
+function build_index(fastafile, k::Int=12, r::Int=4)
+    genome = load_genome(fastafile)
     ivec = two_bits_encode(genome.seq)
     σ = 4  # A/C/G/T
-    fmindex = FMIndex(ivec, σ, r=r)
+    Mbp = 1000^2
+    if length(genome) < 500Mbp
+        program = :SuffixArrays
+        mmap = false
+    else
+        program = :psascan
+        mmap = true
+    end
+    fmindex = FMIndex(ivec, σ, r=r, program=program, mmap=mmap)
     sa_table = build_sa_table(fmindex, Kmer{DNANucleotide,k})
     return GenomeIndex(genome, fmindex, sa_table)
 end
@@ -106,7 +113,7 @@ function build_sa_table{n,k,T}(fmindex::FMIndex{n,T}, ::Type{Kmer{DNANucleotide,
     sa_table = Vector{UnitRange{T}}(len)
     for i in 1:len
         kmer = convert(Kmer{DNANucleotide,k}, UInt64(i-1))
-        sa_table[i] = FMIndices.sa_range(kmer, fmindex)
+        sa_table[i] = FMIndexes.sa_range(kmer, fmindex)
     end
     return SATable{T,k}(sa_table)
 end

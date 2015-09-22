@@ -24,6 +24,8 @@ immutable DNASeq
     len::Csize_t
 end
 
+DNASeq() = DNASeq(C_NULL, 0)
+
 function convert(::Type{DNASeq}, seq::Vector{DNANucleotide})
     return DNASeq(pointer(seq), length(seq))
 end
