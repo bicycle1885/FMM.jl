@@ -1,12 +1,3 @@
-# mock
-type Alignment
-    score::Score
-end
-
-function call(::Type{Alignment})
-    return Alignment(typemin(Score))
-end
-
 #          |<-- seed hit -->|
 # ~~~~~~~~~^^^^^^^^^^^^^^^^^^~~~~~~~~~~~
 #          ^                ^
@@ -45,6 +36,12 @@ end
 
 total_score(x::SeedHitExt) = x.lscore + x.hscore + x.rscore
 
+# delegete
+seed_start(seedhit::SeedHitExt) = seed_start(seedhit.seedhit)
+seed_stop(seedhit::SeedHitExt) = seed_stop(seedhit.seedhit)
+seed_length(seedhit::SeedHitExt) = seed_length(seedhit.seedhit)
+isforward(seedhit::SeedHitExt) = isforward(seedhit.seedhit)
+
 
 # alignment state of a read
 type ReadState
@@ -62,7 +59,7 @@ type ReadState
     # alignment status
     isaligned::Bool
     # best alignment
-    alignment::Alignment
+    alignment::Nullable{AlignmentResult}
     # alignment score cache
     scores::Vector{Score}
     # unpacked read sequence cache
@@ -76,7 +73,7 @@ type ReadState
             DNASequence(), DNASequence(), [], [], 0, 0,
             SmallPQueue{Score,SeedHitExt}(5),
             false,
-            Alignment(), [], [], [], [],
+            Nullable(), [], [], [], [],
         )
     end
 end
@@ -90,7 +87,14 @@ function setread!(rs::ReadState, read)
     rs.n_hits′ = 0
     empty!(rs.best)
     rs.isaligned = false
-    rs.alignment = Alignment()
+    rs.alignment = Nullable()
+    #rs.alignment = Alignment()
+    return rs
+end
+
+function set_alignment!(rs::ReadState, aln)
+    rs.alignment = Nullable(aln)
+    rs.isaligned = true
     return rs
 end
 
@@ -125,7 +129,7 @@ function alignment(rs::ReadState)
     if !isaligned(rs)
         error("this read is not aligned")
     end
-    return rs.alignment
+    return get(rs.alignment)
 end
 
 function resize_scores!(rs::ReadState, size)

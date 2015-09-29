@@ -1,5 +1,12 @@
 using StatsBase: WeightVec, sample, sample!
 
+immutable SimpleSubstMatrix{T} <: AbstractSubstitutionMatrix{T}
+    matching_score::T
+    mismatching_score::T
+end
+
+Base.getindex(subst_matrix::SimpleSubstMatrix, x, y) = ifelse(x == y, subst_matrix.matching_score, subst_matrix.mismatching_score)
+
 function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     seedlen = profile.seed_length
     interval = profile.seed_interval
@@ -22,8 +29,17 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
         score_seed!(rs, seedhit, index, profile.score_params, profile.max_trials_per_seedhit)
     end
 
-    # TODO backtracking to calculate alignment
-    rs.isaligned = true
+    subst_matrix = SimpleSubstMatrix(
+        profile.score_params.matching_score,
+        profile.score_params.mismatching_score
+    )
+    affinegap = AffineGapScoreModel{Score}(
+        subst_matrix,
+        profile.score_params.gap_open_penalty,
+        profile.score_params.gap_ext_penalty
+    )
+    aln = align_hit(rs, index.genome, affinegap)
+    set_alignment!(rs, aln)
     return rs
 end
 
@@ -142,4 +158,41 @@ function unpack_seq!(dst, src, startpos, stoppos)
         j += step
     end
     return dst
+end
+
+function align_hit(rs::ReadState, genome::Genome, affinegap)
+    # get the best alignment seed
+    score, seedhit = rs.best[1]
+    loc = seedhit.location
+    read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
+    offset = 0
+    # left
+    left_rseq = Vector{DNANucleotide}()
+    left_gseq = Vector{DNANucleotide}()
+    unpack_seq!(left_rseq, read, seed_start(seedhit) - 1, 0)
+    startpos = loc - 1
+    stoppos = startpos - (seed_start(seedhit) - 1 + offset)
+    unpack_seq!(left_gseq, genome, startpos, stoppos)
+    left_aln = pairalign(GlobalAlignment(), left_rseq, left_gseq, affinegap)
+    # right
+    right_rseq = Vector{DNANucleotide}()
+    right_gseq = Vector{DNANucleotide}()
+    unpack_seq!(right_rseq, read, seed_stop(seedhit) + 1, length(read) + 1)
+    startpos = loc + seed_length(seedhit)
+    stoppos = startpos + (length(read) - seed_stop(seedhit) + offset)
+    unpack_seq!(right_gseq, genome, startpos, stoppos)
+    right_aln = pairalign(GlobalAlignment(), right_rseq, right_gseq, affinegap)
+    # create whole alignment
+    read′ = GappedSequence(read, 1)
+    combine_gapped_sequences!(read′, left_aln[1], seedhit, right_aln[1])
+    genome′ = GappedSequence(genome.seq, loc - length(left_aln[2]))
+    combine_gapped_sequences!(genome′, left_aln[2], seedhit, right_aln[2])
+    return AlignmentResult(score, read′, genome′)
+end
+
+function combine_gapped_sequences!(gseq, left_gseq, seedhit, right_gseq)
+    append!(gseq, reversed_counts(left_gseq))
+    push_chars!(gseq, seed_length(seedhit))
+    append!(gseq, counts(right_gseq))
+    return gseq
 end

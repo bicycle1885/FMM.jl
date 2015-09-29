@@ -5,6 +5,7 @@ importall Base
 using Bio.Seq
 using IntArrays
 using FMIndexes
+using PairwiseAlignment
 import Bio
 
 include("index.jl")
@@ -25,10 +26,10 @@ function run_alignment(profile::AlignmentProfile, index, read_file)
         setread!(readstate, rec.seq)
         align_read!(readstate, index, profile)
         if isaligned(readstate)
-            #println(alignment(readstate))
-            score, hit = readstate.best[1]
-            chr, loc = locus(index.genome, hit.location)
-            println(rec.name, '\t', chr, '\t', loc, '\t', score)
+            println(alignment(readstate))
+            #score, hit = readstate.best[1]
+            #chr, loc = locus(index.genome, hit.location)
+            #println(rec.name, '\t', chr, '\t', loc, '\t', score)
         end
     end
     info(t, "s")
