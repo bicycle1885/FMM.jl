@@ -22,17 +22,22 @@ function run_alignment(profile::AlignmentProfile, index, read_file)
              error("unknown format")
     reads = open(read_file, format)
     readstate = ReadState()
+    info("aligning reads")
     t = @elapsed for rec in reads
         setread!(readstate, rec.seq)
         align_read!(readstate, index, profile)
+        println(rec.name)
         if isaligned(readstate)
-            println(alignment(readstate))
-            #score, hit = readstate.best[1]
-            #chr, loc = locus(index.genome, hit.location)
-            #println(rec.name, '\t', chr, '\t', loc, '\t', score)
+            aln = alignment(readstate)
+            chr, loc = locus(index.genome, aln[2].startpos)
+            println(chr, ':', loc)
+            println(aln)
+        else
+            println("not aligned")
         end
+        println()
     end
-    info(t, "s")
+    info("finished: ", t, " s")
 end
 
 end # module

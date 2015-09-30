@@ -43,11 +43,10 @@ function run_align(genome_file, read_file)
         gap_open_penalty=5,
         gap_ext_penalty=3,
     )
-    index = open(deserialize, string(genome_file, ".index"))
+    info("loading index")
+    t = @elapsed index = open(deserialize, string(genome_file, ".index"))
+    info("finished: ", t, " s")
     FMM.run_alignment(profile, index, read_file)
-    #FMM.run_alignment(profile, index, read_file)
-    #@profile FMM.run_alignment(profile, index, read_file)
-    #Profile.print(STDERR, format=:tree, cols=1000)
 end
 
 main()
