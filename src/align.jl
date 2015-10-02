@@ -173,7 +173,7 @@ function align_hit(rs::ReadState, genome::Genome, affinegap)
     startpos = loc - 1
     stoppos = startpos - (seed_start(seedhit) - 1 + offset)
     unpack_seq!(left_gseq, genome, startpos, stoppos)
-    left_aln = pairalign(GlobalAlignment(), left_rseq, left_gseq, affinegap)
+    left_aln = pairalign(left_rseq, left_gseq, affinegap)
     # right
     right_rseq = Vector{DNANucleotide}()
     right_gseq = Vector{DNANucleotide}()
@@ -181,13 +181,32 @@ function align_hit(rs::ReadState, genome::Genome, affinegap)
     startpos = loc + seed_length(seedhit)
     stoppos = startpos + (length(read) - seed_stop(seedhit) + offset)
     unpack_seq!(right_gseq, genome, startpos, stoppos)
-    right_aln = pairalign(GlobalAlignment(), right_rseq, right_gseq, affinegap)
+    right_aln = pairalign(right_rseq, right_gseq, affinegap)
     # create whole alignment
     read′ = GappedSequence(read, 1)
     combine_gapped_sequences!(read′, left_aln[1], seedhit, right_aln[1])
-    genome′ = GappedSequence(genome.seq, loc - length(left_aln[2]))
+    genome′ = GappedSequence(genome.seq, loc - n_chars(left_aln[2]))
     combine_gapped_sequences!(genome′, left_aln[2], seedhit, right_aln[2])
     return AlignmentResult(score, read′, genome′)
+end
+
+# pairwise-alignment wrapper
+function pairalign(rseq, gseq, affinegap)
+    subst_matrix = affinegap.subst_matrix
+    gap_open_penalty = affinegap.gap_open_penalty
+    gap_extend_penalty = affinegap.gap_extend_penalty
+    H, E, F = PairwiseAlignment.affinegap_global_align(rseq, gseq, subst_matrix, gap_open_penalty, gap_extend_penalty)
+    m = length(rseq)
+    max_score = typemin(Score)
+    max_score_col = 0
+    for j in 1:length(gseq)
+        if H[m+1,j+1] ≥ max_score
+            max_score = H[m+1,j+1]
+            max_score_col = j
+        end
+    end
+    rseq′, gseq′ = PairwiseAlignment.affinegap_global_traceback(rseq, gseq, H, E, F, (m, max_score_col), subst_matrix, gap_open_penalty, gap_extend_penalty)
+    return AlignmentResult(H[m+1,max_score_col+1], rseq′, gseq′)
 end
 
 function combine_gapped_sequences!(gseq, left_gseq, seedhit, right_gseq)
