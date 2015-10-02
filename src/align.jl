@@ -1,5 +1,30 @@
 using StatsBase: WeightVec, sample, sample!
 
+function run_alignment(profile::AlignmentProfile, index, read_file)
+    format = endswith(read_file, ".fa") ? FASTA :
+             endswith(read_file, ".fq") ? FASTQ :
+             error("unknown format")
+    reads = open(read_file, format)
+    readstate = ReadState()
+    info("aligning reads")
+    t = @elapsed for rec in reads
+        setread!(readstate, rec.seq)
+        align_read!(readstate, index, profile)
+        println(rec.name)
+        if isaligned(readstate)
+            aln = alignment(readstate)
+            chr, loc = locus(index.genome, aln[2].startpos)
+            println(chr, ':', loc)
+            println(aln)
+        else
+            println("not aligned")
+        end
+        println()
+    end
+    info("finished: ", t, " s")
+end
+
+
 immutable SimpleSubstMatrix{T} <: AbstractSubstitutionMatrix{T}
     matching_score::T
     mismatching_score::T
@@ -97,7 +122,7 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, params, max_trials_
         sample!(1:n_hits, indices, replace=false)
     end
 
-    offset = 0
+    offset = 10
     read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
 
     i = 0
@@ -165,7 +190,7 @@ function align_hit(rs::ReadState, genome::Genome, affinegap)
     score, seedhit = rs.best[1]
     loc = seedhit.location
     read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
-    offset = 0
+    offset = 10
     # left
     left_rseq = Vector{DNANucleotide}()
     left_gseq = Vector{DNANucleotide}()
@@ -199,8 +224,8 @@ function pairalign(rseq, gseq, affinegap)
     m = length(rseq)
     max_score = typemin(Score)
     max_score_col = 0
-    for j in 1:length(gseq)
-        if H[m+1,j+1] ≥ max_score
+    for j in 0:length(gseq)
+        if H[m+1,j+1] > max_score
             max_score = H[m+1,j+1]
             max_score_col = j
         end
