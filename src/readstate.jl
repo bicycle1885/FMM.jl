@@ -60,20 +60,12 @@ type ReadState
     isaligned::Bool
     # best alignment
     alignment::Nullable{AlignmentResult}
-    # alignment score cache
-    scores::Vector{Score}
-    # unpacked read sequence cache
-    rseq::Vector{DNANucleotide}
-    # unpacked genome sequence cache
-    gseqs::Vector{Vector{DNANucleotide}}
-    # DNASeqs
-    dnaseqs::Vector{DNASeq}
     function ReadState()
         new(
             DNASequence(), DNASequence(), [], [], 0, 0,
             SmallPQueue{Score,SeedHitExt}(5),
             false,
-            Nullable(), [], [], [], [],
+            Nullable()
         )
     end
 end
@@ -132,20 +124,6 @@ function alignment(rs::ReadState)
     return get(rs.alignment)
 end
 
-function resize_scores!(rs::ReadState, size)
-    resize!(rs.scores, size)
-end
-
-function reset_scores!(rs::ReadState)
-    fill!(rs.scores, Score(0))
-end
-
-function prepare_alignment!(rs::ReadState, n)
-    resize!(rs.gseqs, n)
-    resize!(rs.dnaseqs, n)
-    fill!(rs.gseqs, DNANucleotide[])
-end
-
 
 # seedhit iterator
 
@@ -154,13 +132,8 @@ immutable SeedHitIterator
     forward::Bool
 end
 
-function each_forward_seedhit(rs::ReadState)
-    return SeedHitIterator(rs, true)
-end
-
-function each_reverse_seedhit(rs::ReadState)
-    return SeedHitIterator(rs, false)
-end
+each_forward_seedhit(rs::ReadState) = SeedHitIterator(rs, true)
+each_reverse_seedhit(rs::ReadState) = SeedHitIterator(rs, false)
 
 Base.start(iter::SeedHitIterator) = 1
 function Base.done(iter::SeedHitIterator, i)
