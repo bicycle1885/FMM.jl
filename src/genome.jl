@@ -1,6 +1,6 @@
 # concatenated chromosomes
 immutable Genome
-    seq::DNASequence
+    seq::GenomicSequence
     names::Vector{ASCIIString}
     offsets::Vector{Int}
 end
@@ -24,16 +24,9 @@ Base.endof(genome::Genome)  = length(genome.seq)
     return genome.seq[i]
 end
 
-function copy_nucleotides(genome::Genome, startpos::Integer, stoppos::Integer)
-    len = abs(stoppos - startpos) + 1
-    nucs = Vector{DNANucleotide}(len)
-    step = startpos < stoppos ? 1 : -1
-    j = startpos
-    for i in 1:len
-        nucs[i] = genome.seq[j]
-        j += step
-    end
-    return nucs
+function unpack_seq!(dst::Vector, genome::Genome, startpos, stoppos)
+    # delegate
+    return unpack_seq!(dst, genome.seq, startpos, stoppos)
 end
 
 function locus(genome::Genome, i::Integer)

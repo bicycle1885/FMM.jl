@@ -5,7 +5,7 @@ immutable NMask
     len::Int
 end
 
-function NMask(bv::BitVector)
+function Base.convert(::Type{NMask}, bv::BitVector)
     n = length(bv.chunks)
     blockmask = BitVector()
     blocks = Vector{UInt64}()
@@ -22,15 +22,91 @@ function NMask(bv::BitVector)
     return NMask(blockmask, blocks, length(bv))
 end
 
+function Base.convert(::Type{BitVector}, nmask::NMask)
+    bv = BitVector()
+    for i in 1:length(nmask)
+        push!(bv, nmask[i])
+    end
+    return bv
+end
+
 @inline Base.length(nmask::NMask) = nmask.len
 
+@inline function divrem64(i)
+    return i >> 6, i & 0b111111
+end
+
+@inline function block_bit(i)
+    d, r = divrem64(Int(i - 1))
+    return d + 1, r + 1
+end
+
 @inline function Base.getindex(nmask::NMask, i::Integer)
-    blockid = Int(i - 1) >> 6 + 1
+    blockid, bitid = block_bit(i)
     #if !nmask.blockmask[blockid]
     if !IndexableBitVectors.unsafe_getindex(nmask.blockmask, blockid)
         return false
     end
-    @inbounds block = nmask.blocks[rank1(nmask.blockmask, blockid)]
-    bitid = Int(i - 1) & 0b111111 + 1
+    block = nmask.blocks[rank1(nmask.blockmask, blockid)]
     return ((block >> (bitid - 1)) & 1) == 1
+end
+
+function findnext(nmask::NMask, i::Integer)
+    if i > length(nmask)
+        return 0
+    end
+    blockid, bitid = block_bit(i)
+    if nmask.blockmask[blockid]
+        # try to find in the current block
+        block = nmask.blocks[rank1(nmask.blockmask, blockid)]
+        d = findnext_in_block(block, bitid)
+        if d > 0
+            # found in the block
+            return 64 * (blockid - 1) + d
+        end
+    end
+    # search in the following blocks
+    blockid = search1(nmask.blockmask, blockid + 1)
+    if blockid == 0
+        return 0
+    end
+    block = nmask.blocks[rank1(nmask.blockmask, blockid)]
+    d = findnext_in_block(block, 1)
+    @assert d > 0
+    return 64 * (blockid - 1) + d
+end
+
+function findnext_in_block(block, bitid)
+    block = block >> (bitid - 1)
+    return block == 0 ? 0 : bitid + trailing_zeros(block)
+end
+
+function findprev(nmask::NMask, i::Integer)
+    if i ≤ 0
+        return 0
+    end
+    blockid, bitid = block_bit(i)
+    if nmask.blockmask[blockid]
+        # try to find in the current block
+        block = nmask.blocks[rank1(nmask.blockmask, blockid)]
+        d = findprev_in_block(block, bitid)
+        if d > 0
+            # found in the block
+            return 64 * (blockid - 1) + d
+        end
+    end
+    # search in the following blocks
+    blockid = rsearch1(nmask.blockmask, blockid - 1)
+    if blockid == 0
+        return 0
+    end
+    block = nmask.blocks[rank1(nmask.blockmask, blockid)]
+    d = findprev_in_block(block, 64)
+    @assert d > 0
+    return 64 * (blockid - 1) + d
+end
+
+function findprev_in_block(block, bitid)
+    block = block << (64 - bitid)
+    return block == 0 ? 0 : bitid - leading_zeros(block)
 end

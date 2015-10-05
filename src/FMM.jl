@@ -6,8 +6,11 @@ using Bio.Seq
 using IntArrays
 using FMIndexes
 using PairwiseAlignment
+using IndexableBitVectors
 import Bio
 
+include("nmask.jl")
+include("genomicseq.jl")
 include("genome.jl")
 include("index.jl")
 include("small_pque.jl")
