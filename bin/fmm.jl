@@ -35,8 +35,8 @@ function run_align(genome_file, read_file)
         seed_length=22,
         seed_interval=ceil(Int, 1 + 1.15 * sqrt(100)),
         # effort limits
-        #max_trials_per_seedhit=4 * FMM.N_PAR,
         max_trials_per_seedhit=4 * FMM.N_PAR,
+        max_seedcut_multiplier=1000,
         # alignment scores
         matching_score=0,
         mismatching_score=-6,

@@ -6,10 +6,12 @@ function run_alignment(profile::AlignmentProfile, index, read_file)
              error("unknown format")
     reads = open(read_file, format)
     readstate = ReadState()
+    n_reads = 0
     info("aligning reads")
     t = @elapsed for rec in reads
         setread!(readstate, rec.seq)
         align_read!(readstate, index, profile)
+        n_reads += 1
         println(rec.name)
         if isaligned(readstate)
             aln = alignment(readstate)
@@ -22,6 +24,7 @@ function run_alignment(profile::AlignmentProfile, index, read_file)
         println()
     end
     info("finished: ", t, " s")
+    info(@sprintf("%.1f", n_reads / t), " reads/s")
 end
 
 
@@ -42,24 +45,34 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
 
     if !hashit(rs)
         # no clue
-        rs.isaligned = false
         return rs
     end
 
+
     # find best alignment from matching seeds
+    max_trials_per_seedhit = profile.max_trials_per_seedhit
+    max_seedcut_multiplier = profile.max_seedcut_multiplier
     for seedhit in each_forward_seedhit(rs)
-        score_seed!(rs, seedhit, index, profile.score_params, profile.max_trials_per_seedhit)
+        if count(seedhit) ≤ max_trials_per_seedhit * max_seedcut_multiplier
+            score_seed!(rs, seedhit, index, profile.score_params, max_trials_per_seedhit)
+        end
     end
     for seedhit in each_reverse_seedhit(rs)
-        score_seed!(rs, seedhit, index, profile.score_params, profile.max_trials_per_seedhit)
+        if count(seedhit) ≤ max_trials_per_seedhit * max_seedcut_multiplier
+            score_seed!(rs, seedhit, index, profile.score_params, max_trials_per_seedhit)
+        end
     end
 
-    subst_matrix = SimpleSubstMatrix(
+    if isempty(rs.best)
+        return rs
+    end
+
+    submat = SimpleSubstMatrix(
         profile.score_params.matching_score,
         profile.score_params.mismatching_score
     )
     affinegap = AffineGapScoreModel{Score}(
-        subst_matrix,
+        submat,
         profile.score_params.gap_open_penalty,
         profile.score_params.gap_ext_penalty
     )
@@ -217,10 +230,10 @@ end
 
 # pairwise-alignment wrapper
 function pairalign(rseq, gseq, affinegap)
-    subst_matrix = affinegap.subst_matrix
+    submat = affinegap.subst_matrix
     gap_open_penalty = affinegap.gap_open_penalty
     gap_extend_penalty = affinegap.gap_extend_penalty
-    H, E, F = PairwiseAlignment.affinegap_global_align(rseq, gseq, subst_matrix, gap_open_penalty, gap_extend_penalty)
+    H, E, F = PairwiseAlignment.affinegap_global_align(rseq, gseq, submat, gap_open_penalty, gap_extend_penalty)
     m = length(rseq)
     max_score = typemin(Score)
     max_score_col = 0
@@ -230,7 +243,7 @@ function pairalign(rseq, gseq, affinegap)
             max_score_col = j
         end
     end
-    rseq′, gseq′ = PairwiseAlignment.affinegap_global_traceback(rseq, gseq, H, E, F, (m, max_score_col), subst_matrix, gap_open_penalty, gap_extend_penalty)
+    rseq′, gseq′ = PairwiseAlignment.affinegap_global_traceback(rseq, gseq, H, E, F, (m, max_score_col), submat, gap_open_penalty, gap_extend_penalty)
     return AlignmentResult(H[m+1,max_score_col+1], rseq′, gseq′)
 end
 

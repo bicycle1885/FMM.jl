@@ -78,9 +78,7 @@ function setread!(rs::ReadState, read)
     rs.n_hits = 0
     rs.n_hits′ = 0
     empty!(rs.best)
-    rs.isaligned = false
     rs.alignment = Nullable()
-    #rs.alignment = Alignment()
     return rs
 end
 
@@ -114,7 +112,7 @@ function hashit(rs::ReadState)
 end
 
 function isaligned(rs::ReadState)
-    rs.isaligned
+    return !isnull(rs.alignment)
 end
 
 function alignment(rs::ReadState)

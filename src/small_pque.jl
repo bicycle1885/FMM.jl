@@ -13,6 +13,7 @@ type SmallPQueue{S,T}
 end
 
 Base.length(q::SmallPQueue) = q.size
+Base.isempty(q::SmallPQueue) = q.size == 0
 
 isfull(q::SmallPQueue) = q.size == q.max_size
 
