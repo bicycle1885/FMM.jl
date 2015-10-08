@@ -63,7 +63,7 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
         end
     end
 
-    if isempty(rs.best)
+    if !has_aligned_seed(rs)
         return rs
     end
 
@@ -178,7 +178,7 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, params, max_trials_
                 params.matching_score * seed_length(seedhit),
                 right_scores[j]
             )
-            enqueue!(rs.best, seedhitext, total_score(seedhitext))
+            push!(rs, seedhitext)
         end
     end
 end
@@ -200,7 +200,8 @@ end
 
 function align_hit(rs::ReadState, genome::Genome, affinegap)
     # get the best alignment seed
-    score, seedhit = rs.best[1]
+    seedhit = best_aligned_seed(rs)
+    score = total_score(seedhit)
     loc = seedhit.location
     read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
     offset = 10

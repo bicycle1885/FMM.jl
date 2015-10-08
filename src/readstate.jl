@@ -10,7 +10,7 @@ type ReadState
     n_hits::Int
     n_hits′::Int
     # best alignments
-    best::SmallPQueue{Score,SeedHitExt}
+    seedhit_queue::IntervalHeap{SeedHitExt}
     # alignment status
     isaligned::Bool
     # best alignment
@@ -18,7 +18,7 @@ type ReadState
     function ReadState()
         new(
             DNASequence(), DNASequence(), [], [], 0, 0,
-            SmallPQueue{Score,SeedHitExt}(5),
+            IntervalHeap{SeedHitExt}(),
             false,
             Nullable()
         )
@@ -32,7 +32,7 @@ function setread!(rs::ReadState, read)
     empty!(rs.seedhits′)
     rs.n_hits = 0
     rs.n_hits′ = 0
-    empty!(rs.best)
+    empty!(rs.seedhit_queue)
     rs.alignment = Nullable()
     return rs
 end
@@ -56,6 +56,20 @@ function push!(rs::ReadState, hit::SeedHit)
         rs.n_hits′ += count(hit)
     end
     return rs
+end
+
+function push!(rs::ReadState, seedhit::SeedHitExt)
+    score = total_score(seedhit)
+    push!(rs.seedhit_queue, seedhit)
+    return rs
+end
+
+function best_aligned_seed(rs::ReadState)
+    return maximum(rs.seedhit_queue)
+end
+
+function has_aligned_seed(rs::ReadState)
+    return !isempty(rs.seedhit_queue)
 end
 
 function n_total_hits(rs::ReadState)

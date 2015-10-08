@@ -7,13 +7,13 @@ using IntArrays
 using FMIndexes
 using PairwiseAlignment
 using IndexableBitVectors
+using IntervalHeaps
 import Bio
 
 include("nmask.jl")
 include("genomicseq.jl")
 include("genome.jl")
 include("index.jl")
-include("small_pque.jl")
 include("seediter.jl")
 include("alignscore.jl")
 include("profile.jl")

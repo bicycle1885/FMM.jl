@@ -35,6 +35,7 @@ immutable SeedHitExt
 end
 
 total_score(x::SeedHitExt) = x.lscore + x.hscore + x.rscore
+isless(x::SeedHitExt, y::SeedHitExt) = isless(total_score(x), total_score(y))
 
 # delegete
 seed_start(seedhit::SeedHitExt) = seed_start(seedhit.seedhit)
