@@ -24,6 +24,10 @@ Base.endof(genome::Genome)  = length(genome.seq)
     return genome.seq[i]
 end
 
+function subseq(genome::Genome, len::Int, offset::Int, reversed::Bool)
+    return subseq(genome.seq, len, offset, reversed)
+end
+
 function unpack_seq!(dst::Vector, genome::Genome, startpos, stoppos)
     # delegate
     return unpack_seq!(dst, genome.seq, startpos, stoppos)

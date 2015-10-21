@@ -41,6 +41,10 @@ end
     return d + 1, r + 1
 end
 
+function block_start(blockid)
+    return (blockid - 1) << 6 + 1
+end
+
 @inline function Base.getindex(nmask::NMask, i::Integer)
     blockid, bitid = block_bit(i)
     #if !nmask.blockmask[blockid]
@@ -109,4 +113,18 @@ end
 function findprev_in_block(block, bitid)
     block = block << (64 - bitid)
     return block == 0 ? 0 : bitid - leading_zeros(block)
+end
+
+function hasn_within(nmask::NMask, r::UnitRange{Int})
+    return findnext(nmask, first(r)) in r
+end
+
+function make_nbitmap(nmask::NMask, r::UnitRange{Int})
+    ns = falses(length(r))
+    i = findnext(nmask, first(r))
+    while i in r
+        ns[i-first(r)+1] = true
+        i = findnext(nmask, i + 1)
+    end
+    return ns
 end

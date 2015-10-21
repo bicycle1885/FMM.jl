@@ -14,7 +14,7 @@ type ReadState
     # alignment status
     isaligned::Bool
     # best alignment
-    alignment::Nullable{AlignmentResult}
+    alignment::Nullable{AlignedSequence}
     function ReadState()
         new(
             DNASequence(), DNASequence(), [], [], 0, 0,

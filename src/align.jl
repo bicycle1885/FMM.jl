@@ -27,14 +27,6 @@ function run_alignment(profile::AlignmentProfile, index, read_file)
     info(@sprintf("%.1f", n_reads / t), " reads/s")
 end
 
-
-immutable SimpleSubstMatrix{T} <: AbstractSubstitutionMatrix{T}
-    matching_score::T
-    mismatching_score::T
-end
-
-Base.getindex(subst_matrix::SimpleSubstMatrix, x, y) = ifelse(x == y, subst_matrix.matching_score, subst_matrix.mismatching_score)
-
 function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     seedlen = profile.seed_length
     interval = profile.seed_interval
@@ -54,12 +46,12 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     max_seedcut_multiplier = profile.max_seedcut_multiplier
     for seedhit in each_forward_seedhit(rs)
         if count(seedhit) ≤ max_trials_per_seedhit * max_seedcut_multiplier
-            score_seed!(rs, seedhit, index, profile.score_params, max_trials_per_seedhit)
+            score_seed!(rs, seedhit, index, profile.score_model, max_trials_per_seedhit)
         end
     end
     for seedhit in each_reverse_seedhit(rs)
         if count(seedhit) ≤ max_trials_per_seedhit * max_seedcut_multiplier
-            score_seed!(rs, seedhit, index, profile.score_params, max_trials_per_seedhit)
+            score_seed!(rs, seedhit, index, profile.score_model, max_trials_per_seedhit)
         end
     end
 
@@ -67,17 +59,8 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
         return rs
     end
 
-    submat = SimpleSubstMatrix(
-        profile.score_params.matching_score,
-        profile.score_params.mismatching_score
-    )
-    affinegap = AffineGapScoreModel{Score}(
-        submat,
-        profile.score_params.gap_open_penalty,
-        profile.score_params.gap_ext_penalty
-    )
-    aln = align_hit(rs, index.genome, affinegap)
-    set_alignment!(rs, aln)
+    aln = align_hit(rs, index.genome, profile.score_model)
+    #set_alignment!(rs, aln)
     return rs
 end
 
@@ -103,26 +86,9 @@ function search_seed!{T,k}(rs::ReadState, forward, index::GenomeIndex{T,k}, seed
     end
 end
 
-# global variables for parallel alignment
-const indices = Vector{Int}()
-const locs = Vector{Int}(N_PAR)
-const left_scores  = Vector{Score}(N_PAR)
-const right_scores = Vector{Score}(N_PAR)
-const readseq = Vector{DNANucleotide}()
-const genome_seqs_left  = Vector{Vector{DNANucleotide}}(N_PAR)
-const genome_seqs_right = Vector{Vector{DNANucleotide}}(N_PAR)
-const dna_seqs_left = Vector{DNASeq}(N_PAR)
-const dna_seqs_right = Vector{DNASeq}(N_PAR)
-for j in 1:N_PAR
-    genome_seqs_left[j] = []
-    genome_seqs_right[j] = []
-    dna_seqs_left[j] = DNASeq()
-    dna_seqs_right[j] = DNASeq()
-end
-
 # calculate alignment scores of all hit locations
-function score_seed!(rs::ReadState, seedhit::SeedHit, index, params, max_trials_per_seedhit)
-    global indices, locs, left_scores, right_scores, readseq, genome_seqs_left, genome_seqs_right, dna_seqs_left, dna_seqs_right
+function score_seed!(rs::ReadState, seedhit::SeedHit, index, model, max_trials_per_seedhit)
+    indices = Vector{Int}()
 
     n_hits = count(seedhit)
     if n_hits ≤ max_trials_per_seedhit
@@ -135,51 +101,65 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, params, max_trials_
         sample!(1:n_hits, indices, replace=false)
     end
 
-    offset = 10
+    #offset = 10
+    offset = 0
     read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
 
-    i = 0
-    while i < n_hits
-        n_filled = 0
-        while i < n_hits && n_filled < N_PAR
-            loc = FMIndexes.sa_value(seedhit[indices[i+=1]], index.fmindex) + 1
-            locs[n_filled+=1] = loc
-            # fill genome sequences - left
-            startpos = loc - 1
-            stoppos = startpos - (seed_start(seedhit) - 1 + offset)
-            unpack_seq!(genome_seqs_left[n_filled], index.genome, startpos, stoppos)
-            # fill genome sequences - right
-            startpos = loc + seed_length(seedhit)
-            stoppos = startpos + (length(read) - seed_stop(seedhit) + offset)
-            unpack_seq!(genome_seqs_right[n_filled], index.genome, startpos, stoppos)
-        end
+    locs = Vector{Int}(n_hits)
+    for i in 1:n_hits
+        locs[i] = FMIndexes.sa_value(seedhit[indices[i]], index.fmindex) + 1
+    end
 
-        # calculate alignemnt scores - left
-        fill!(left_scores, 0)
-        unpack_seq!(readseq, read, seed_start(seedhit) - 1, 0)
-        for j in 1:n_filled
-            dna_seqs_left[j] = genome_seqs_left[j]
-        end
-        alignment_scores!(left_scores, params, readseq, dna_seqs_left, n_filled)
+    refseqs = Vector{seq_t}(n_hits)
 
-        # calculate alignemnt scores - right
-        fill!(right_scores, 0)
-        unpack_seq!(readseq, read, seed_stop(seedhit) + 1, endof(read) + 1)
-        for j in 1:n_filled
-            dna_seqs_right[j] = genome_seqs_right[j]
-        end
-        alignment_scores!(right_scores, params, readseq, dna_seqs_right, n_filled)
+    # align left sequences
+    for i in 1:n_hits
+        len = seed_start(seedhit) - 1
+        offset = locs[i] - 2
+        refseqs[i] = subseq(index.genome, len, offset, true)
+    end
 
-        for j in 1:n_filled
-            seedhitext = SeedHitExt(
-                seedhit,
-                locs[j],
-                left_scores[j],
-                params.matching_score * seed_length(seedhit),
-                right_scores[j]
-            )
-            push!(rs, seedhitext)
-        end
+    left_scores = Vector{Score}(n_hits)
+    right_scores = Vector{Score}(n_hits)
+
+    alns = paralign_score(
+        model.submat,
+        model.gap_open_penalty,
+        model.gap_extend_penalty,
+        read[1:seed_start(seedhit)-1],
+        refseqs
+    )
+    for i in 1:n_hits
+        left_scores[i] = alns[i].score
+    end
+
+    # align right sequences
+    for i in 1:n_hits
+        len = length(read) - seed_stop(seedhit)
+        offset = locs[i] + seed_length(seedhit) - 1
+        refseqs[i] = subseq(index.genome, len, offset, false)
+    end
+
+    alns = paralign_score(
+        model.submat,
+        model.gap_open_penalty,
+        model.gap_extend_penalty,
+        read[seed_stop(seedhit)+1:end],
+        refseqs
+    )
+    for i in 1:n_hits
+        right_scores[i] = alns[i].score
+    end
+
+    for i in 1:n_hits
+        seedhitext = SeedHitExt(
+            seedhit,
+            locs[i],
+            left_scores[i],
+            0,  # TODO: fix
+            right_scores[i]
+        )
+        push!(rs, seedhitext)
     end
 end
 
@@ -202,36 +182,12 @@ function align_hit(rs::ReadState, genome::Genome, affinegap)
     # get the best alignment seed
     seedhit = best_aligned_seed(rs)
     score = total_score(seedhit)
-    loc = seedhit.location
-    read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
-    offset = 10
-    # left
-    left_rseq = Vector{DNANucleotide}()
-    left_gseq = Vector{DNANucleotide}()
-    unpack_seq!(left_rseq, read, seed_start(seedhit) - 1, 0)
-    startpos = loc - 1
-    stoppos = startpos - (seed_start(seedhit) - 1 + offset)
-    unpack_seq!(left_gseq, genome, startpos, stoppos)
-    left_aln = pairalign(left_rseq, left_gseq, affinegap)
-    # right
-    right_rseq = Vector{DNANucleotide}()
-    right_gseq = Vector{DNANucleotide}()
-    unpack_seq!(right_rseq, read, seed_stop(seedhit) + 1, length(read) + 1)
-    startpos = loc + seed_length(seedhit)
-    stoppos = startpos + (length(read) - seed_stop(seedhit) + offset)
-    unpack_seq!(right_gseq, genome, startpos, stoppos)
-    right_aln = pairalign(right_rseq, right_gseq, affinegap)
-    # create whole alignment
-    read′ = GappedSequence(read, 1)
-    combine_gapped_sequences!(read′, left_aln[1], seedhit, right_aln[1])
-    genome′ = GappedSequence(genome.seq, loc - n_chars(left_aln[2]))
-    combine_gapped_sequences!(genome′, left_aln[2], seedhit, right_aln[2])
-    return AlignmentResult(score, read′, genome′)
+    @show score, seedhit
 end
 
 # pairwise-alignment wrapper
 function pairalign(rseq, gseq, affinegap)
-    submat = affinegap.subst_matrix
+    submat = affinegap.submat
     gap_open_penalty = affinegap.gap_open_penalty
     gap_extend_penalty = affinegap.gap_extend_penalty
     H, E, F = PairwiseAlignment.affinegap_global_align(rseq, gseq, submat, gap_open_penalty, gap_extend_penalty)

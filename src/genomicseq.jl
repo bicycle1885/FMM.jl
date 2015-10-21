@@ -31,6 +31,28 @@ end
     return seq.nmask[i] ? DNA_N : getnuc(seq.data, i)
 end
 
+const empty_ns = falses(1000)
+
+# create a subsequence between
+function subseq(seq::GenomicSequence, len::Int, offset::Int, reversed::Bool)
+    if reversed
+        r = offset-len+2:offset+1
+    else
+        r = offset+1:offset+len
+    end
+    if hasn_within(seq.nmask, r)
+        ns = make_nbitmap(seq.nmask, r)
+    else
+        if len > length(empty_ns)
+            resize!(empty_ns, len)
+            fill!(empty_ns, false)
+        end
+        ns = empty_ns
+    end
+    byteseq = reinterpret(UInt8, seq.data)
+    return seq_t(pointer(byteseq), len, offset, reversed, true)
+end
+
 # unpack `src[startpos:stoppos)` into `dst`
 # note that `stoppos` is exclusive!
 function unpack_seq!(dst::Vector, src::GenomicSequence, startpos, stoppos)

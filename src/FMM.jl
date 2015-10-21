@@ -3,9 +3,10 @@ module FMM
 importall Base
 
 using Bio.Seq
+using Bio.Align
+using SIMDAlignment
 using IntArrays
 using FMIndexes
-using PairwiseAlignment
 using IndexableBitVectors
 using IntervalHeaps
 import Bio
