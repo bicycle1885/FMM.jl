@@ -34,6 +34,7 @@ function run_align(genome_file, read_file)
         # seed search
         seed_length=22,
         seed_interval=ceil(Int, 1 + 1.15 * sqrt(100)),
+        #seed_interval=8,
         # effort limits
         max_trials_per_seedhit=4 * FMM.N_PAR,
         max_seedcut_multiplier=1000,

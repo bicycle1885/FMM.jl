@@ -11,15 +11,12 @@ type ReadState
     n_hits′::Int
     # best alignments
     seedhit_queue::IntervalHeap{SeedHitExt}
-    # alignment status
-    isaligned::Bool
     # best alignment
     alignment::Nullable{AlignedSequence}
     function ReadState()
         new(
             DNASequence(), DNASequence(), [], [], 0, 0,
             IntervalHeap{SeedHitExt}(),
-            false,
             Nullable()
         )
     end
@@ -39,7 +36,6 @@ end
 
 function set_alignment!(rs::ReadState, aln)
     rs.alignment = Nullable(aln)
-    rs.isaligned = true
     return rs
 end
 

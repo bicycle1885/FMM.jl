@@ -15,7 +15,7 @@ function run_alignment(profile::AlignmentProfile, index, read_file)
         println(rec.name)
         if isaligned(readstate)
             aln = alignment(readstate)
-            chr, loc = locus(index.genome, aln[2].startpos)
+            chr, loc = locus(index.genome, Bio.Align.first(aln))
             println(chr, ':', loc)
             println(aln)
         else
@@ -25,6 +25,14 @@ function run_alignment(profile::AlignmentProfile, index, read_file)
     end
     info("finished: ", t, " s")
     info(@sprintf("%.1f", n_reads / t), " reads/s")
+    # profile
+    #reads = open(read_file, format)
+    #readstate = ReadState()
+    #@profile for rec in reads
+    #    setread!(readstate, rec.seq)
+    #    align_read!(readstate, index, profile)
+    #end
+    #Profile.print(STDERR, format=:flat, cols=1000)
 end
 
 function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
@@ -40,19 +48,12 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
         return rs
     end
 
-
     # find best alignment from matching seeds
-    max_trials_per_seedhit = profile.max_trials_per_seedhit
-    max_seedcut_multiplier = profile.max_seedcut_multiplier
     for seedhit in each_forward_seedhit(rs)
-        if count(seedhit) ≤ max_trials_per_seedhit * max_seedcut_multiplier
-            score_seed!(rs, seedhit, index, profile.score_model, max_trials_per_seedhit)
-        end
+        score_seed!(rs, seedhit, index, profile.score_model)
     end
     for seedhit in each_reverse_seedhit(rs)
-        if count(seedhit) ≤ max_trials_per_seedhit * max_seedcut_multiplier
-            score_seed!(rs, seedhit, index, profile.score_model, max_trials_per_seedhit)
-        end
+        score_seed!(rs, seedhit, index, profile.score_model)
     end
 
     if !has_aligned_seed(rs)
@@ -60,48 +61,34 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     end
 
     aln = align_hit(rs, index.genome, profile.score_model)
-    #set_alignment!(rs, aln)
+    set_alignment!(rs, aln)
     return rs
 end
 
-function search_seed!{T,k}(rs::ReadState, forward, index::GenomeIndex{T,k}, seedlen, interval)
+function search_seed!{T,k}(rs, forward, index::GenomeIndex{T,k}, seedlen, interval)
     read = forward ? forward_read(rs) : reverse_read(rs)
-    for seed_range in SeedIterator(1:endof(read), seedlen, interval)
-        seed = read[seed_range]
-        if hasn(seed)
-            # seeds containing N cannot be used to exact maching
+    for s in endof(read):-interval:k
+        if hasn(read[s-k+1:s])
             continue
         end
-        if length(seed) ≥ k
-            # use the SA range table of k-mers
-            kmer::DNAKmer{k} = seed[end-k+1:end]
-            init_range::UnitRange{Int} = index.sa_table[kmer]
-            sa_range = FMIndexes.sa_range(seed[1:end-k], index.fmindex, init_range)
-        else
-            sa_range = FMIndexes.sa_range(seed, index.fmindex)
+        kmer::DNAKmer{k} = read[s-k+1:s]
+        sa_range::UnitRange{Int} = index.sa_table[kmer]
+        i = s - k
+        while i ≥ 1 && read[i] != DNA_N && length(sa_range) > 16
+            sa_range = FMIndexes.sa_range(read[i:i], index.fmindex, sa_range)
+            i -= 1
         end
-        if !isempty(sa_range)
+        if 1 ≤ length(sa_range) ≤ 16
+            seed_range = i+1:s
             push!(rs, SeedHit(seed_range, sa_range, forward))
         end
     end
 end
 
 # calculate alignment scores of all hit locations
-function score_seed!(rs::ReadState, seedhit::SeedHit, index, model, max_trials_per_seedhit)
-    indices = Vector{Int}()
-
+function score_seed!(rs::ReadState, seedhit::SeedHit, index, model)
     n_hits = count(seedhit)
-    if n_hits ≤ max_trials_per_seedhit
-        resize!(indices, n_hits)
-        copy!(indices, 1:n_hits)
-    else
-        # sample seed hit locations
-        n_hits = max_trials_per_seedhit
-        resize!(indices, n_hits)
-        sample!(1:n_hits, indices, replace=false)
-    end
-
-    #offset = 10
+    indices = 1:n_hits
     offset = 0
     read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
 
@@ -163,50 +150,78 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, model, max_trials_p
     end
 end
 
-# unpack `src[startpos:stoppos)` into `dst`
-# note that `stoppos` is exclusive!
-function unpack_seq!(dst, src, startpos, stoppos)
-    len = abs(startpos - stoppos)
+function align_hit(rs::ReadState, genome::Genome, affinegap)
+    seedhit = best_aligned_seed(rs)
+    loc = seedhit.location
+    read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
+    rfrag = Vector{DNANucleotide}()
+    gfrag = Vector{DNANucleotide}()
+    # left
+    unpack_seq!(rfrag, read, seed_start(seedhit) - 1, seed_start(seedhit) - 1, true)
+    unpack_seq!(gfrag, genome, loc - 1, length(rfrag), true)
+    aln = pairalign(GlobalAlignment(), rfrag, gfrag, affinegap)
+    # init read anchors
+    read_anchors = Vector{AlignmentAnchor}()
+    seqpos = 0
+    refpos = loc - length(gfrag) - 1
+    push!(read_anchors, AlignmentAnchor(seqpos, refpos, OP_START))
+    anchors = Bio.Align.alignment(aln).anchors
+    for i in endof(anchors):-1:2
+        op = anchors[i].op
+        if ismatchop(op)
+            Δseqpos = anchors[i].seqpos - anchors[i-1].seqpos
+            Δrefpos = anchors[i].refpos - anchors[i-1].refpos
+            @assert Δseqpos == Δrefpos
+        elseif isinsertop(op)
+            Δseqpos = anchors[i].seqpos - anchors[i-1].seqpos
+            Δrefpos = 0
+        elseif isdeleteop(op)
+            Δseqpos = 0
+            Δrefpos = anchors[i].refpos - anchors[i-1].refpos
+        else
+            error("$op")
+        end
+        seqpos += Δseqpos
+        refpos += Δrefpos
+        push!(read_anchors, AlignmentAnchor(seqpos, refpos, op))
+    end
+    # match
+    seqpos += seed_length(seedhit)
+    refpos += seed_length(seedhit)
+    push!(read_anchors, AlignmentAnchor(seqpos, refpos, OP_SEQ_MATCH))
+    # right
+    unpack_seq!(rfrag, read, seed_stop(seedhit) + 1, length(read) - seed_stop(seedhit), false)
+    unpack_seq!(gfrag, genome, loc + seed_length(seedhit), length(rfrag), false)
+    aln = pairalign(GlobalAlignment(), rfrag, gfrag, affinegap)
+    anchors = Bio.Align.alignment(aln).anchors
+    for i in 2:endof(anchors)
+        op = anchors[i].op
+        if ismatchop(op)
+            Δseqpos = anchors[i].seqpos - anchors[i-1].seqpos
+            Δrefpos = anchors[i].refpos - anchors[i-1].refpos
+            @assert Δseqpos == Δrefpos
+        elseif isinsertop(op)
+            Δseqpos = anchors[i].seqpos - anchors[i-1].seqpos
+            Δrefpos = 0
+        elseif isdeleteop(op)
+            Δseqpos = 0
+            Δrefpos = anchors[i].refpos - anchors[i-1].refpos
+        else
+            error("$op")
+        end
+        seqpos += Δseqpos
+        refpos += Δrefpos
+        push!(read_anchors, AlignmentAnchor(seqpos, refpos, op))
+    end
+    return AlignedSequence(read, read_anchors)
+end
+
+function unpack_seq!(dst, src, start, len, reversed)
     resize!(dst, len)
-    step = startpos < stoppos ? 1 : -1
-    i = 0
-    j = startpos
-    @inbounds while i < len
-        dst[i+=1] = src[j]
-        j += step
+    j = start
+    for i in 1:len
+        dst[i] = src[j]
+        j += reversed ? -1 : +1
     end
     return dst
-end
-
-function align_hit(rs::ReadState, genome::Genome, affinegap)
-    # get the best alignment seed
-    seedhit = best_aligned_seed(rs)
-    score = total_score(seedhit)
-    @show score, seedhit
-end
-
-# pairwise-alignment wrapper
-function pairalign(rseq, gseq, affinegap)
-    submat = affinegap.submat
-    gap_open_penalty = affinegap.gap_open_penalty
-    gap_extend_penalty = affinegap.gap_extend_penalty
-    H, E, F = PairwiseAlignment.affinegap_global_align(rseq, gseq, submat, gap_open_penalty, gap_extend_penalty)
-    m = length(rseq)
-    max_score = typemin(Score)
-    max_score_col = 0
-    for j in 0:length(gseq)
-        if H[m+1,j+1] > max_score
-            max_score = H[m+1,j+1]
-            max_score_col = j
-        end
-    end
-    rseq′, gseq′ = PairwiseAlignment.affinegap_global_traceback(rseq, gseq, H, E, F, (m, max_score_col), submat, gap_open_penalty, gap_extend_penalty)
-    return AlignmentResult(H[m+1,max_score_col+1], rseq′, gseq′)
-end
-
-function combine_gapped_sequences!(gseq, left_gseq, seedhit, right_gseq)
-    append!(gseq, reversed_counts(left_gseq))
-    push_chars!(gseq, seed_length(seedhit))
-    append!(gseq, counts(right_gseq))
-    return gseq
 end
