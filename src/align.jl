@@ -156,64 +156,58 @@ function align_hit(rs::ReadState, genome::Genome, affinegap)
     read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
     rfrag = Vector{DNANucleotide}()
     gfrag = Vector{DNANucleotide}()
+    read_anchors = Vector{AlignmentAnchor}()
+
     # left
     unpack_seq!(rfrag, read, seed_start(seedhit) - 1, seed_start(seedhit) - 1, true)
     unpack_seq!(gfrag, genome, loc - 1, length(rfrag), true)
     aln = pairalign(GlobalAlignment(), rfrag, gfrag, affinegap)
-    # init read anchors
-    read_anchors = Vector{AlignmentAnchor}()
     seqpos = 0
     refpos = loc - length(gfrag) - 1
     push!(read_anchors, AlignmentAnchor(seqpos, refpos, OP_START))
     anchors = Bio.Align.alignment(aln).anchors
     for i in endof(anchors):-1:2
-        op = anchors[i].op
-        if ismatchop(op)
-            Δseqpos = anchors[i].seqpos - anchors[i-1].seqpos
-            Δrefpos = anchors[i].refpos - anchors[i-1].refpos
-            @assert Δseqpos == Δrefpos
-        elseif isinsertop(op)
-            Δseqpos = anchors[i].seqpos - anchors[i-1].seqpos
-            Δrefpos = 0
-        elseif isdeleteop(op)
-            Δseqpos = 0
-            Δrefpos = anchors[i].refpos - anchors[i-1].refpos
-        else
-            error("$op")
-        end
+        Δseqpos, Δrefpos = anchorwidth(anchors, i)
         seqpos += Δseqpos
         refpos += Δrefpos
-        push!(read_anchors, AlignmentAnchor(seqpos, refpos, op))
+        push!(read_anchors, AlignmentAnchor(seqpos, refpos, anchors[i].op))
     end
+
     # match
     seqpos += seed_length(seedhit)
     refpos += seed_length(seedhit)
     push!(read_anchors, AlignmentAnchor(seqpos, refpos, OP_SEQ_MATCH))
+
     # right
     unpack_seq!(rfrag, read, seed_stop(seedhit) + 1, length(read) - seed_stop(seedhit), false)
     unpack_seq!(gfrag, genome, loc + seed_length(seedhit), length(rfrag), false)
     aln = pairalign(GlobalAlignment(), rfrag, gfrag, affinegap)
     anchors = Bio.Align.alignment(aln).anchors
     for i in 2:endof(anchors)
-        op = anchors[i].op
-        if ismatchop(op)
-            Δseqpos = anchors[i].seqpos - anchors[i-1].seqpos
-            Δrefpos = anchors[i].refpos - anchors[i-1].refpos
-            @assert Δseqpos == Δrefpos
-        elseif isinsertop(op)
-            Δseqpos = anchors[i].seqpos - anchors[i-1].seqpos
-            Δrefpos = 0
-        elseif isdeleteop(op)
-            Δseqpos = 0
-            Δrefpos = anchors[i].refpos - anchors[i-1].refpos
-        else
-            error("$op")
-        end
+        Δseqpos, Δrefpos = anchorwidth(anchors, i)
         seqpos += Δseqpos
         refpos += Δrefpos
-        push!(read_anchors, AlignmentAnchor(seqpos, refpos, op))
+        push!(read_anchors, AlignmentAnchor(seqpos, refpos, anchors[i].op))
     end
     return AlignedSequence(read, read_anchors)
+end
+
+function anchorwidth(anchors, i)
+    op = anchors[i].op
+    if ismatchop(op)
+        Δseqpos = anchors[i].seqpos - anchors[i-1].seqpos
+        Δrefpos = anchors[i].refpos - anchors[i-1].refpos
+        @assert Δseqpos == Δrefpos
+    elseif isinsertop(op)
+        Δseqpos = anchors[i].seqpos - anchors[i-1].seqpos
+        Δrefpos = 0
+    elseif isdeleteop(op)
+        Δseqpos = 0
+        Δrefpos = anchors[i].refpos - anchors[i-1].refpos
+    else
+        error("invalid op: $op")
+    end
+    return Δseqpos, Δrefpos
 end
 
 function unpack_seq!(dst, src, start, len, reversed)
