@@ -18,6 +18,7 @@ function run_alignment(profile::AlignmentProfile, index, read_file)
             chr, loc = locus(index.genome, Bio.Align.first(aln))
             println(chr, ':', loc)
             println(aln)
+            println(cigar(aln.aln))
         else
             println("not aligned")
         end
@@ -67,12 +68,14 @@ end
 
 function search_seed!{T,k}(rs, forward, index::GenomeIndex{T,k}, seedlen, interval)
     read = forward ? forward_read(rs) : reverse_read(rs)
+    println(forward ? "forward" : "backward")
     for s in endof(read):-interval:k
         if hasn(read[s-k+1:s])
             continue
         end
         kmer::DNAKmer{k} = read[s-k+1:s]
         sa_range::UnitRange{Int} = index.sa_table[kmer]
+        @show length(sa_range)
         i = s - k
         while i ≥ 1 && read[i] != DNA_N && length(sa_range) > 16
             sa_range = FMIndexes.sa_range(read[i:i], index.fmindex, sa_range)
@@ -189,7 +192,7 @@ function align_hit(rs::ReadState, genome::Genome, affinegap)
         refpos += Δrefpos
         push!(read_anchors, AlignmentAnchor(seqpos, refpos, anchors[i].op))
     end
-    return AlignedSequence(read, read_anchors)
+    return AlignedSequence(read, compress(read_anchors))
 end
 
 function anchorwidth(anchors, i)
@@ -208,6 +211,19 @@ function anchorwidth(anchors, i)
         error("invalid op: $op")
     end
     return Δseqpos, Δrefpos
+end
+
+function compress(anchors)
+    compressed = Vector{AlignmentAnchor}()
+    op = anchors[1].op
+    for i in 2:endof(anchors)
+        if anchors[i].op != op
+            push!(compressed, anchors[i-1])
+            op = anchors[i].op
+        end
+    end
+    push!(compressed, anchors[end])
+    return compressed
 end
 
 function unpack_seq!(dst, src, start, len, reversed)
