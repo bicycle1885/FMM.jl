@@ -30,8 +30,8 @@ end
 
 function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     # sarch seed hits
-    search_seed!(rs,  true, index, profile.seed_interval, profile.seed_extend_length, profile.max_seed_extension)
-    search_seed!(rs, false, index, profile.seed_interval, profile.seed_extend_length, profile.max_seed_extension)
+    search_seed!(rs,  true, index, profile.seed_interval, profile.max_seed_extension)
+    search_seed!(rs, false, index, profile.seed_interval, profile.max_seed_extension)
 
     if !hashit(rs)
         # no clue
@@ -40,10 +40,10 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
 
     # find best alignment from matching seeds
     for seedhit in each_forward_seedhit(rs)
-        score_seed!(rs, seedhit, index, profile.seed_extend_length, profile.score_model8)
+        score_seed!(rs, seedhit, index, profile.score_model16)
     end
     for seedhit in each_reverse_seedhit(rs)
-        score_seed!(rs, seedhit, index, profile.seed_extend_length, profile.score_model8)
+        score_seed!(rs, seedhit, index, profile.score_model16)
     end
 
     if !has_aligned_seed(rs)
@@ -55,22 +55,19 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     return rs
 end
 
-function search_seed!{T,k}(rs, forward, index::GenomeIndex{T,k}, interval, extlen, maxseed)
+function search_seed!{T,k}(rs, forward, index::GenomeIndex{T,k}, interval, maxseed)
     read = forward ? forward_read(rs) : reverse_read(rs)
-    L = extlen
-    for s in endof(read)-L:-interval:k+L
+    for s in endof(read):-interval:k
         kmer = read[s-k+1:s]
         if hasn(kmer)
             continue
         end
         sa_range::UnitRange{Int} = index.sa_table[convert(DNAKmer{k}, kmer)]
         i = s - k
-        nt = read[i]
-        while i > L && nt != DNA_N && length(sa_range) > maxseed
-            byte::UInt8 = nt
+        while i > 1 && read[i] != DNA_N && length(sa_range) > maxseed
+            byte::UInt8 = read[i]
             sa_range = FMIndexes.sa_range(byte, index.fmindex, sa_range)
             i -= 1
-            nt = read[i]
         end
         if 1 ≤ length(sa_range) ≤ maxseed
             seed_range = i+1:s
@@ -80,7 +77,7 @@ function search_seed!{T,k}(rs, forward, index::GenomeIndex{T,k}, interval, extle
 end
 
 # calculate alignment scores of all hit locations
-function score_seed!(rs::ReadState, seedhit::SeedHit, index, extlen, model)
+function score_seed!(rs::ReadState, seedhit::SeedHit, index, model)
     n_hits = count(seedhit)
     read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
 
@@ -93,8 +90,9 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, extlen, model)
 
     # align left sequences
     for i in 1:n_hits
+        len = seed_start(seedhit) - 1
         offset = locs[i] - 2
-        refseqs[i] = subseq(index.genome, extlen, offset, true)
+        refseqs[i] = subseq(index.genome, len, offset, true)
     end
 
     left_scores = Vector{Score}(n_hits)
@@ -104,7 +102,7 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, extlen, model)
         model.submat,
         model.gap_open_penalty,
         model.gap_extend_penalty,
-        seq_t(read[seed_start(seedhit)-extlen:seed_start(seedhit)-1], true),
+        seq_t(read[1:seed_start(seedhit)-1], true),
         refseqs
     )
     for i in 1:n_hits
@@ -113,15 +111,16 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, extlen, model)
 
     # align right sequences
     for i in 1:n_hits
+        len = length(read) - seed_stop(seedhit)
         offset = locs[i] + seed_length(seedhit) - 1
-        refseqs[i] = subseq(index.genome, extlen, offset, false)
+        refseqs[i] = subseq(index.genome, len, offset, false)
     end
 
     alns = paralign_score(
         model.submat,
         model.gap_open_penalty,
         model.gap_extend_penalty,
-        seq_t(read[seed_stop(seedhit)+1:seed_stop(seedhit)+extlen], false),
+        seq_t(read[seed_stop(seedhit)+1:end], false),
         refseqs
     )
     for i in 1:n_hits
