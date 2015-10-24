@@ -1,6 +1,6 @@
 using StatsBase: WeightVec, sample, sample!
 
-function run_alignment(profile::AlignmentProfile, index, read_file)
+function run_alignment(profile::AlignmentProfile, index, read_file, output)
     format = endswith(read_file, ".fa") ? FASTA :
              endswith(read_file, ".fq") ? FASTQ :
              error("unknown format")
@@ -12,17 +12,17 @@ function run_alignment(profile::AlignmentProfile, index, read_file)
         setread!(readstate, rec.seq)
         align_read!(readstate, index, profile)
         n_reads += 1
-        println(rec.name, " ", rec.metadata)
+        println(output, rec.name, " ", rec.metadata)
         if isaligned(readstate)
             aln = alignment(readstate)
             chr, loc = locus(index.genome, Bio.Align.first(aln))
-            println(chr, ':', loc)
-            println(aln)
-            println(cigar(aln.aln))
+            println(output, chr, ':', loc)
+            println(output, aln)
+            println(output, cigar(aln.aln))
         else
-            println("not aligned")
+            println(output, "not aligned")
         end
-        println()
+        println(output)
     end
     info("finished: ", t, " s")
     info(@sprintf("%.1f", n_reads / t), " reads/s")
@@ -104,7 +104,7 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, extlen, model)
         model.submat,
         model.gap_open_penalty,
         model.gap_extend_penalty,
-        read[seed_start(seedhit)-extlen:seed_start(seedhit)-1],
+        seq_t(read[seed_start(seedhit)-extlen:seed_start(seedhit)-1], true),
         refseqs
     )
     for i in 1:n_hits
@@ -121,7 +121,7 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, extlen, model)
         model.submat,
         model.gap_open_penalty,
         model.gap_extend_penalty,
-        read[seed_stop(seedhit)+1:seed_stop(seedhit)+extlen],
+        seq_t(read[seed_stop(seedhit)+1:seed_stop(seedhit)+extlen], false),
         refseqs
     )
     for i in 1:n_hits

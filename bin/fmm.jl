@@ -44,7 +44,7 @@ function run_align(genome_file, read_file)
     info("loading index")
     t = @elapsed index = open(deserialize, string(genome_file, ".index"))
     info("finished: ", t, " s")
-    FMM.run_alignment(profile, index, read_file)
+    FMM.run_alignment(profile, index, read_file, STDOUT)
 end
 
 main()
