@@ -1,17 +1,17 @@
 type AlignmentProfile
-    seed_length::Int
     seed_interval::Int
-    max_trials_per_seedhit::Int
-    max_seedcut_multiplier::Int
-    score_model::AffineGapScoreModel{Score}
+    seed_extend_length::Int
+    max_seed_extension::Int
+    score_model::AffineGapScoreModel{Int}
+    score_model8::AffineGapScoreModel{Int8}
 
     function AlignmentProfile(;kwargs...)
         dict = Dict(kwargs)
-        seed_length = dict[:seed_length]
         seed_interval = dict[:seed_interval]
-        max_trials_per_seedhit = dict[:max_trials_per_seedhit]
-        max_seedcut_multiplier = dict[:max_seedcut_multiplier]
-        submat = Array{Score}(5, 5)
+        seed_extend_length = dict[:seed_extend_length]
+        max_seed_extension = dict[:max_seed_extension]
+        # create affine gap model
+        submat = Array{Int}(5, 5)
         fill!(submat, dict[:mismatching_score])
         submat[diagind(submat)] = dict[:matching_score]
         score_model = AffineGapScoreModel(
@@ -19,12 +19,20 @@ type AlignmentProfile
             gap_open_penalty=dict[:gap_open_penalty],
             gap_extend_penalty=dict[:gap_extend_penalty]
         )
+        submat = Array{Int8}(5, 5)
+        fill!(submat, dict[:mismatching_score])
+        submat[diagind(submat)] = dict[:matching_score]
+        score_model8 = AffineGapScoreModel(
+            submat,
+            gap_open_penalty=dict[:gap_open_penalty],
+            gap_extend_penalty=dict[:gap_extend_penalty]
+        )
         return new(
-            seed_length,
             seed_interval,
-            max_trials_per_seedhit,
-            max_seedcut_multiplier,
-            score_model
+            seed_extend_length,
+            max_seed_extension,
+            score_model,
+            score_model8
         )
     end
 end

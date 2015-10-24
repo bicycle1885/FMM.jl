@@ -31,13 +31,10 @@ end
 function run_align(genome_file, read_file)
     # same as --sensitive option of Bowtie2 if nt = 100
     profile = FMM.AlignmentProfile(
-        # seed search
-        seed_length=22,
-        seed_interval=ceil(Int, 1 + 1.15 * sqrt(100)),
-        #seed_interval=8,
-        # effort limits
-        max_trials_per_seedhit=4 * FMM.N_PAR,
-        max_seedcut_multiplier=1000,
+        #seed_interval=ceil(Int, 1 + 1.15 * sqrt(100)),
+        seed_interval=8,
+        seed_extend_length=12,
+        max_seed_extension=32,
         # alignment scores
         matching_score=0,
         mismatching_score=-6,
