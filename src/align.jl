@@ -39,11 +39,24 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     end
 
     # find best alignment from matching seeds
-    for seedhit in each_forward_seedhit(rs)
-        score_seed!(rs, seedhit, index, profile.score_model16)
-    end
-    for seedhit in each_reverse_seedhit(rs)
-        score_seed!(rs, seedhit, index, profile.score_model16)
+    #for seedhit in each_forward_seedhit(rs)
+    #    score_seed!(rs, seedhit, index, profile.score_model16)
+    #end
+    #for seedhit in each_reverse_seedhit(rs)
+    #    score_seed!(rs, seedhit, index, profile.score_model16)
+    #end
+    best = typemin(Int)
+    ntry = 0
+    for seedhit in each_permuted_seedhit(rs)
+        if ntry ≥ profile.max_seed_try
+            break
+        end
+        score = score_seed!(rs, seedhit, index, profile.score_model16)
+        if score ≤ best
+            ntry += 1
+        else
+            best = score
+        end
     end
 
     if !has_aligned_seed(rs)
@@ -127,6 +140,7 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, model)
         right_scores[i] = alns[i].score
     end
 
+    best::Int = typemin(Int)
     for i in 1:n_hits
         seedhitext = SeedHitExt(
             seedhit,
@@ -135,8 +149,10 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, model)
             0,  # TODO: fix
             right_scores[i]
         )
+        best = max(total_score(seedhitext), best)
         push!(rs, seedhitext)
     end
+    return best
 end
 
 function align_hit(rs::ReadState, genome::Genome, affinegap)

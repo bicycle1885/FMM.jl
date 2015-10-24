@@ -107,3 +107,35 @@ function Base.next(iter::SeedHitIterator, i)
     seedhits = iter.forward ? iter.rs.seedhits : iter.rs.seedhits′
     seedhits[i], i + 1
 end
+
+immutable PermutedSeedHitIterator
+    rs::ReadState
+    # positive: forward / negative: reverse
+    ord::Vector{Int}
+end
+
+function each_permuted_seedhit(rs::ReadState)
+    nforward = length(rs.seedhits)
+    nreverse = length(rs.seedhits′)
+    ord = Vector{Int}()
+    for i in 1:nforward
+        push!(ord, i)
+    end
+    for i in 1:nreverse
+        push!(ord, -i)
+    end
+    shuffle!(ord)
+    return PermutedSeedHitIterator(rs, ord)
+end
+
+Base.start(iter::PermutedSeedHitIterator) = 1
+Base.done(iter::PermutedSeedHitIterator, i) = i > length(iter.ord)
+function Base.next(iter::PermutedSeedHitIterator, i)
+    idx = iter.ord[i]
+    if idx > 0
+        hit = iter.rs.seedhits[idx]
+    else
+        hit = iter.rs.seedhits′[-idx]
+    end
+    return hit, i + 1
+end
