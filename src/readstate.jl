@@ -139,3 +139,40 @@ function Base.next(iter::PermutedSeedHitIterator, i)
     end
     return hit, i + 1
 end
+
+function each_prioritized_seedhit(rs::ReadState, index)
+    hits = Vector{Int}()
+    append!(hits, 1:length(rs.seedhits))
+    append!(hits, -1:-1:-length(rs.seedhits′))
+    priority = Vector{Float64}()
+    append!(priority, prioritize_seeds(rs.seedhits, index.fmindex))
+    append!(priority, prioritize_seeds(rs.seedhits′, index.fmindex))
+    ord = sortperm(priority, rev=true)
+    return PermutedSeedHitIterator(rs, hits[ord])
+end
+
+function prioritize_seeds(seedhits, fmindex)
+    inds = Vector{Int}()
+    locs = Vector{Int}()
+    for (i, seedhit) in enumerate(seedhits)
+        for j in 1:count(seedhit)
+            loc = FMIndexes.sa_value(seedhit[j], fmindex) + 1
+            push!(inds, i)
+            push!(locs, loc)
+        end
+    end
+    L = 100
+    priority = zeros(length(seedhits))
+    ord = sortperm(locs)
+    for i in 1:endof(ord)
+        cent = locs[ord[i]]
+        for j in i+1:endof(ord)
+            if locs[ord[j]] - cent ≥ L
+                break
+            end
+            priority[inds[ord[i]]] += 1
+            priority[inds[ord[j]]] += 1
+        end
+    end
+    return priority
+end
