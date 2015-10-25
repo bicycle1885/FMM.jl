@@ -40,16 +40,20 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
 
     # find best alignment from matching seeds
     best = typemin(Int)
+    achievable = readlen(rs) * maximum(profile.score_model.submat)
     ntry = 0
     for seedhit in each_prioritized_seedhit(rs, index)
         if ntry ≥ profile.max_seed_try
             break
         end
         score = score_seed!(rs, seedhit, index, profile.score_model16)
-        if score ≤ best
-            ntry += 1
-        else
+        if score ≥ achievable
+            break
+        elseif score > best
             best = score
+            ntry = 0
+        else
+            ntry += 1
         end
     end
 

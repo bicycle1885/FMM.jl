@@ -29,17 +29,16 @@ function run_index(genome_file)
 end
 
 function run_align(genome_file, read_file)
-    # same as --sensitive option of Bowtie2 if nt = 100
     profile = FMM.AlignmentProfile(
         #seed_interval=ceil(Int, 1 + 1.15 * sqrt(100)),
         seed_interval=12,
         max_seed_extension=16,
-        max_seed_try=6,
+        max_seed_try=4,
         # alignment scores
         matching_score=0,
-        mismatching_score=-6,
-        gap_open_penalty=5,
-        gap_extend_penalty=3,
+        mismatching_score=-2,
+        gap_open_penalty=2,
+        gap_extend_penalty=1,
     )
     info("loading index")
     t = @elapsed index = open(deserialize, string(genome_file, ".index"))

@@ -43,6 +43,8 @@ end
 forward_read(rs::ReadState) = rs.read
 reverse_read(rs::ReadState) = rs.read′
 
+readlen(rs::ReadState) = length(rs.read)
+
 function push!(rs::ReadState, hit::SeedHit)
     if isforward(hit)
         push!(rs.seedhits, hit)
