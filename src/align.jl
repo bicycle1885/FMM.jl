@@ -30,8 +30,8 @@ end
 
 function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     # sarch seed hits
-    search_seed!(rs,  true, index, profile.seed_interval, profile.max_seed_extension)
-    search_seed!(rs, false, index, profile.seed_interval, profile.max_seed_extension)
+    search_seed!(rs,  true, index, profile.seed_interval, profile.max_seed_hit)
+    search_seed!(rs, false, index, profile.seed_interval, profile.max_seed_hit)
 
     if !hashit(rs)
         # no clue

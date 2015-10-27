@@ -147,13 +147,14 @@ function each_prioritized_seedhit(rs::ReadState, index)
     append!(hits, 1:length(rs.seedhits))
     append!(hits, -1:-1:-length(rs.seedhits′))
     priority = Vector{Float64}()
-    append!(priority, prioritize_seeds(rs.seedhits, index.fmindex))
-    append!(priority, prioritize_seeds(rs.seedhits′, index.fmindex))
+    append!(priority, prioritize_seeds(rs, true,  index.fmindex))
+    append!(priority, prioritize_seeds(rs, false, index.fmindex))
     ord = sortperm(priority, rev=true)
     return PermutedSeedHitIterator(rs, hits[ord])
 end
 
-function prioritize_seeds(seedhits, fmindex)
+function prioritize_seeds(rs, forward, fmindex)
+    seedhits = forward ? rs.seedhits : rs.seedhits′
     inds = Vector{Int}()
     locs = Vector{Int}()
     for (i, seedhit) in enumerate(seedhits)
@@ -163,13 +164,12 @@ function prioritize_seeds(seedhits, fmindex)
             push!(locs, loc)
         end
     end
-    L = 100
     priority = zeros(length(seedhits))
     ord = sortperm(locs)
     for i in 1:endof(ord)
         cent = locs[ord[i]]
         for j in i+1:endof(ord)
-            if locs[ord[j]] - cent ≥ L
+            if locs[ord[j]] - cent ≥ readlen(rs)
                 break
             end
             priority[inds[ord[i]]] += 1
