@@ -1,6 +1,6 @@
 type AlignmentProfile
     seed_interval::Int
-    max_seed_extension::Int
+    max_seed_hit::Int
     max_seed_try::Int
     score_model::AffineGapScoreModel{Int}
     score_model16::AffineGapScoreModel{Int16}
@@ -8,7 +8,7 @@ type AlignmentProfile
     function AlignmentProfile(;kwargs...)
         dict = Dict(kwargs)
         seed_interval = dict[:seed_interval]
-        max_seed_extension = dict[:max_seed_extension]
+        max_seed_hit = dict[:max_seed_hit]
         max_seed_try = dict[:max_seed_try]
         # create affine gap model
         submat = Array{Int}(5, 5)
@@ -29,7 +29,7 @@ type AlignmentProfile
         )
         return new(
             seed_interval,
-            max_seed_extension,
+            max_seed_hit,
             max_seed_try,
             score_model,
             score_model16

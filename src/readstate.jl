@@ -4,8 +4,8 @@ type ReadState
     read::DNASequence
     read′::DNASequence
     # exact seed hits
-    seedhits::Vector{SeedHit}
-    seedhits′::Vector{SeedHit}
+    seedhits::Vector{SeedHit{Int}}
+    seedhits′::Vector{SeedHit{Int}}
     # the number of hits
     n_hits::Int
     n_hits′::Int
@@ -158,11 +158,14 @@ function prioritize_seeds(rs, forward, fmindex)
     inds = Vector{Int}()
     locs = Vector{Int}()
     for (i, seedhit) in enumerate(seedhits)
+        seedlocs = Vector{Int}(count(seedhit))
         for j in 1:count(seedhit)
             loc = FMIndexes.sa_value(seedhit[j], fmindex) + 1
             push!(inds, i)
             push!(locs, loc)
+            seedlocs[j] = loc
         end
+        seedhits[i] = attach(seedhit, seedlocs)
     end
     priority = zeros(length(seedhits))
     ord = sortperm(locs)

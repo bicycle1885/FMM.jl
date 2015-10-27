@@ -2,13 +2,20 @@
 # ~~~~~~~~~^^^^^^^^^^^^^^^^^^~~~~~~~~~~~
 #          ^                ^
 #          seed_start       seed_stop
-immutable SeedHit
+
+immutable SeedHit{T}
     # read range
     rrange::UnitRange{Int}
     # suffix array range
     sarange::UnitRange{Int}
     # wheather forward or reverse complement
     forward::Bool
+    # attached metadata 
+    metadata::Nullable{Vector{T}}
+end
+
+function Base.call(::Type{SeedHit}, rrange, sarange, forward)
+    return SeedHit(rrange, sarange, forward, Nullable{Vector{Int}}())
 end
 
 seed_start(seedhit::SeedHit) = start(seedhit.rrange)
@@ -17,6 +24,16 @@ seed_length(seedhit::SeedHit) = length(seedhit.rrange)
 count(seedhit::SeedHit) = length(seedhit.sarange)
 getindex(seedhit::SeedHit, i::Integer) = seedhit.sarange[i]
 isforward(seedhit::SeedHit) = seedhit.forward
+metadata(seedhit::SeedHit) = get(seedhit.metadata)
+
+function attach{T}(seedhit::SeedHit{T}, metadata::Vector{T})
+    return SeedHit(
+        seedhit.rrange,
+        seedhit.sarange,
+        seedhit.forward,
+        Nullable(metadata)
+    )
+end
 
 
 #              |<-left->|<-- seed hit -->|<-right->|

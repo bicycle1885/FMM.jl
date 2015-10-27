@@ -91,18 +91,12 @@ end
 function score_seed!(rs::ReadState, seedhit::SeedHit, index, model)
     n_hits = count(seedhit)
     read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
-
-    locs = Vector{Int}(n_hits)
-    for i in 1:n_hits
-        locs[i] = FMIndexes.sa_value(seedhit[i], index.fmindex) + 1
-    end
-
     refseqs = Vector{seq_t}(n_hits)
 
     # align left sequences
     for i in 1:n_hits
         len = seed_start(seedhit) - 1
-        offset = locs[i] - 2
+        offset = metadata(seedhit)[i] - 2
         refseqs[i] = subseq(index.genome, len, offset, true)
     end
 
@@ -123,7 +117,7 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, model)
     # align right sequences
     for i in 1:n_hits
         len = length(read) - seed_stop(seedhit)
-        offset = locs[i] + seed_length(seedhit) - 1
+        offset = metadata(seedhit)[i] + seed_length(seedhit) - 1
         refseqs[i] = subseq(index.genome, len, offset, false)
     end
 
@@ -140,9 +134,10 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, model)
 
     best::Int = typemin(Int)
     for i in 1:n_hits
+        loc = metadata(seedhit)[i]
         seedhitext = SeedHitExt(
             seedhit,
-            locs[i],
+            loc,
             left_scores[i],
             0,  # TODO: fix
             right_scores[i]
