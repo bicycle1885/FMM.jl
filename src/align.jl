@@ -61,8 +61,9 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
         return rs
     end
 
-    aln = align_hit(rs, index.genome, profile.score_model)
+    aln = align_hit(rs, best_aligned_seed(rs), index.genome, profile.score_model)
     set_alignment!(rs, aln)
+
     return rs
 end
 
@@ -148,15 +149,14 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, model)
     return best
 end
 
-function align_hit(rs::ReadState, genome::Genome, affinegap)
-    seedhit = best_aligned_seed(rs)
-    loc = seedhit.location
-    read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
+function align_hit(rs::ReadState, seedhit, genome::Genome, affinegap)
     rfrag = Vector{DNANucleotide}()
     gfrag = Vector{DNANucleotide}()
     read_anchors = Vector{AlignmentAnchor}()
 
     # left
+    loc = seedhit.location
+    read = isforward(seedhit) ? forward_read(rs) : reverse_read(rs)
     unpack_seq!(rfrag, read, seed_start(seedhit) - 1, seed_start(seedhit) - 1, true)
     unpack_seq!(gfrag, genome, loc - 1, length(rfrag), true)
     aln = pairalign(GlobalAlignment(), rfrag, gfrag, affinegap)
