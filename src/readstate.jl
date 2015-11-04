@@ -167,7 +167,9 @@ function prioritize_seeds(rs, forward, fmindex)
         end
         seedhits[i] = attach(seedhit, seedlocs)
     end
-    priority = zeros(length(seedhits))
+    n_seedhits = length(seedhits)
+    #simmat = zeros(Int, n_seedhits, n_seedhits)
+    priority = zeros(n_seedhits)
     ord = sortperm(locs)
     for i in 1:endof(ord)
         cent = locs[ord[i]]
@@ -177,7 +179,10 @@ function prioritize_seeds(rs, forward, fmindex)
             end
             priority[inds[ord[i]]] += 1
             priority[inds[ord[j]]] += 1
+            #simmat[inds[ord[i]],inds[ord[j]]] += 1
+            #simmat[inds[ord[j]],inds[ord[i]]] += 1
         end
     end
+    #@show simmat
     return priority
 end
