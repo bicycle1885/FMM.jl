@@ -3,14 +3,11 @@ type SAMWriter{IOtype<:IO}
     genome::Genome
 end
 
-# replace all consective spaces with a tab
-macro tab_str(s)
-    replace(s, r"\s+", '\t')
-end
+const SAM_Version = "1.5"
 
 function writeheader(sw::SAMWriter)
     # @HD: the header line
-    write(sw.io, "@HD", '\t', "VN:1.5", '\t', "SO:unknown", '\n')
+    write(sw.io, "@HD", '\t', "VN:", SAM_Version, '\t', "SO:unknown", '\n')
 
     # @SQ: reference sequences
     for name in eachname(sw.genome)
@@ -23,6 +20,7 @@ function writeheader(sw::SAMWriter)
 end
 
 # FLAGs
+const FLAG_NONE = 0x0000
 const MultipleSeguemtns = 0x0001
 const ProperlyAligned   = 0x0002
 const SegmentUnmapped   = 0x0004
@@ -41,17 +39,14 @@ function Base.write(sw::SAMWriter, read::AlignedRead)
     # QNAME
     write(sw.io, name(read), '\t')
     # FLAG
-    flag = ProperlyAligned
-    if !isforward(read)
-        flag |= ReverseComplement
-    end
-    print(sw.io, flag, '\t')  # TODO
+    flag = isforward(read) ? FLAG_NONE : ReverseComplement
+    print(sw.io, flag, '\t')
     # RNAME and POS
     rname, pos = locus(sw.genome, firstpos(read))
     writetab(sw.io, rname)
     print(sw.io, pos, '\t')
     # MAPQ
-    writetab(sw.io, '*')  # TODO
+    writetab(sw.io, "255")  # TODO
     # CIGAR
     writetab(sw.io, cigar(read))
     # RNEXT
@@ -63,7 +58,7 @@ function Base.write(sw::SAMWriter, read::AlignedRead)
     # SEQ
     writeseq(sw.io, sequence(read))
     # QUAL
-    writetab(sw.io, '*')  # TODO
+    write(sw.io, '*')  # TODO
     write(sw.io, '\n')
 end
 
@@ -73,13 +68,13 @@ function Base.write(sw::SAMWriter, read::Bio.Seq.SeqRecord)
     writetab(sw.io, read.name)
     # FLAG
     flag = SegmentUnmapped
-    print(sw.io, flag, '\t')  # TODO
+    print(sw.io, flag, '\t')
     # RNAME
     writetab(sw.io, '*')
     # POS
     print(sw.io, 0, '\t')
     # MAPQ
-    writetab(sw.io, '*')  # TODO
+    writetab(sw.io, "255")
     # CIGAR
     writetab(sw.io, '*')
     # RNEXT
@@ -91,7 +86,7 @@ function Base.write(sw::SAMWriter, read::Bio.Seq.SeqRecord)
     # SEQ
     writeseq(sw.io, read.seq)
     # QUAL
-    writetab(sw.io, '*')  # TODO
+    write(sw.io, '*')  # TODO
     write(sw.io, '\n')
 end
 

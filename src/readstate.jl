@@ -26,18 +26,6 @@ type ReadState
     end
 end
 
-function setread!(rs::ReadState, read)
-    rs.read = read
-    rs.read′ = reverse_complement(read)
-    empty!(rs.seedhits)
-    empty!(rs.seedhits′)
-    rs.n_hits = 0
-    rs.n_hits′ = 0
-    empty!(rs.seedhit_queue)
-    rs.alignment = Nullable()
-    return rs
-end
-
 function setrecord!(rs::ReadState, record)
     rs.record = record
     rs.read = record.seq
@@ -78,7 +66,6 @@ function push!(rs::ReadState, hit::SeedHit)
 end
 
 function push!(rs::ReadState, seedhit::SeedHitExt)
-    score = total_score(seedhit)
     push!(rs.seedhit_queue, seedhit)
     return rs
 end
