@@ -6,23 +6,19 @@ function run_alignment(profile::AlignmentProfile, index, read_file, output)
              error("unknown format")
     reads = open(read_file, format)
     readstate = ReadState()
+    out = SAMWriter(STDOUT, index.genome)
     n_reads = 0
     info("aligning reads")
+    writeheader(out)
     t = @elapsed for rec in reads
-        setread!(readstate, rec.seq)
-        align_read!(readstate, index, profile)
+        setrecord!(readstate, rec)
+        aln = align_read!(readstate, index, profile)
         n_reads += 1
-        println(output, rec.name, " ", rec.metadata)
-        if isaligned(readstate)
-            aln = alignment(readstate)
-            chr, loc = locus(index.genome, Bio.Align.first(aln))
-            println(output, chr, ':', loc)
-            println(output, aln)
-            println(output, cigar(aln.aln))
+        if isnull(aln)
+            write(out, rec)
         else
-            println(output, "not aligned")
+            write(out, get(aln))
         end
-        println(output)
     end
     info("finished: ", t, " s")
     info(@sprintf("%.1f", n_reads / t), " reads/s")
@@ -35,7 +31,7 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
 
     if !hashit(rs)
         # no clue
-        return rs
+        return Nullable()
     end
 
     # find best alignment from matching seeds
@@ -58,13 +54,12 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     end
 
     if !has_aligned_seed(rs)
-        return rs
+        return Nullable()
     end
 
-    aln = align_hit(rs, best_aligned_seed(rs), index.genome, profile.score_model)
-    set_alignment!(rs, aln)
-
-    return rs
+    bestseed = best_aligned_seed(rs)
+    alnseq = align_hit(rs, bestseed, index.genome, profile.score_model)
+    return Nullable(AlignedRead(record(rs), alnseq, isforward(bestseed)))
 end
 
 function search_seed!{T,k}(rs, forward, index::GenomeIndex{T,k}, interval, maxseed)

@@ -1,5 +1,7 @@
 # alignment state of a read
 type ReadState
+    # FASTA/FASTQ record
+    record
     # read
     read::DNASequence
     read′::DNASequence
@@ -12,9 +14,11 @@ type ReadState
     # best alignments
     seedhit_queue::IntervalHeap{SeedHitExt}
     # best alignment
-    alignment::Nullable{AlignedSequence}
+    #alignment::Nullable{AlignedSequence}
+    alignment::Nullable{AlignedRead}
     function ReadState()
         new(
+            nothing,
             DNASequence(), DNASequence(), [], [], 0, 0,
             IntervalHeap{SeedHitExt}(),
             Nullable()
@@ -34,9 +38,26 @@ function setread!(rs::ReadState, read)
     return rs
 end
 
-function set_alignment!(rs::ReadState, aln)
+function setrecord!(rs::ReadState, record)
+    rs.record = record
+    rs.read = record.seq
+    rs.read′ = reverse_complement(record.seq)
+    empty!(rs.seedhits)
+    empty!(rs.seedhits′)
+    rs.n_hits = 0
+    rs.n_hits′ = 0
+    empty!(rs.seedhit_queue)
+    rs.alignment = Nullable()
+    return rs
+end
+
+function setalignment!(rs::ReadState, aln)
     rs.alignment = Nullable(aln)
     return rs
+end
+
+function record(rs::ReadState)
+    return rs.record
 end
 
 # forward / reverse complement

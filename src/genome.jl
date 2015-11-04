@@ -14,6 +14,7 @@ function load_genome(fastafile)
         push!(offsets, length(seq) + 1)
         seq *= chr.seq
     end
+    #push!(offsets, length(seq) + 1)
     return Genome(seq, names, offsets)
 end
 
@@ -50,4 +51,18 @@ function locus(genome::Genome, i::Integer)
         end
     end
     return genome.names[lo], i - offsets[lo] + 1
+end
+
+function eachname(genome::Genome)
+    return genome.names
+end
+
+function Base.length(genome::Genome, name)
+    i = findfirst(genome.names, name)
+    if i == endof(genome.offsets)
+        stop = length(genome.seq) + 1
+    else
+        stop = genome.offsets[i+1]
+    end
+    return stop - genome.offsets[i]
 end

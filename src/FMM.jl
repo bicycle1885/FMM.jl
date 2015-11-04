@@ -19,7 +19,9 @@ include("seediter.jl")
 include("alignscore.jl")
 include("profile.jl")
 include("seedhit.jl")
+include("alignedread.jl")
 include("readstate.jl")
 include("align.jl")
+include("sam.jl")
 
 end # module
