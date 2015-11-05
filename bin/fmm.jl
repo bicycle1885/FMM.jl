@@ -36,9 +36,9 @@ function run_align(genome_file, read_file)
         max_seed_try=4,
         # alignment scores
         matching_score=0,
-        mismatching_score=-2,
-        gap_open_penalty=2,
-        gap_extend_penalty=1,
+        mismatching_score=-6,
+        gap_open_penalty=5,
+        gap_extend_penalty=3,
     )
     info("loading index")
     t = @elapsed index = open(deserialize, string(genome_file, ".index"))

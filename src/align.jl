@@ -59,7 +59,7 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
 
     bestseed = best_aligned_seed(rs)
     alnseq = align_hit(rs, bestseed, index.genome, profile.score_model)
-    return Nullable(AlignedRead(record(rs), alnseq, isforward(bestseed)))
+    return Nullable(AlignedRead(record(rs), alnseq, isforward(bestseed), map_quality(rs, profile)))
 end
 
 function search_seed!{T,k}(rs, forward, index::GenomeIndex{T,k}, interval, maxseed)
@@ -225,4 +225,28 @@ function unpack_seq!(dst, src, start, len, reversed)
         j += reversed ? -1 : +1
     end
     return dst
+end
+
+# FASTA
+function map_quality(rs, profile)
+    # base quality
+    qual = 3
+    L = readlen(rs)
+    # infer the number of mismatches with the alignment score
+    mis = mismatching_score(profile)
+    bestseed = popmax!(rs.seedhit_queue)
+    best = 10^(-div(score(bestseed), mis) * qual / 10)
+    ∑mis = best + eps()
+    while !isempty(rs.seedhit_queue)
+        seedhit = popmax!(rs.seedhit_queue)
+        if abs(seedhit.location - bestseed.location) < L
+            continue
+        end
+        s = score(seedhit)
+        ∑mis += 10^(-div(s, mis) * qual / 10)
+        if s < 10mis
+            break
+        end
+    end
+    return ceil(Int, -10log10(1 - best/∑mis))
 end

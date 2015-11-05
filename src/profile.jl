@@ -4,6 +4,7 @@ type AlignmentProfile
     max_seed_try::Int
     score_model::AffineGapScoreModel{Int}
     score_model16::AffineGapScoreModel{Int16}
+    mismatching_score::Int
 
     function AlignmentProfile(;kwargs...)
         dict = Dict(kwargs)
@@ -32,7 +33,10 @@ type AlignmentProfile
             max_seed_hit,
             max_seed_try,
             score_model,
-            score_model16
+            score_model16,
+            dict[:mismatching_score]
         )
     end
 end
+
+mismatching_score(p::AlignmentProfile) = p.mismatching_score

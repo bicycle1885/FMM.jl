@@ -46,7 +46,7 @@ function Base.write(sw::SAMWriter, read::AlignedRead)
     writetab(sw.io, rname)
     print(sw.io, pos, '\t')
     # MAPQ
-    writetab(sw.io, "255")  # TODO
+    print(sw.io, mapquality(read), '\t')  # TODO
     # CIGAR
     writetab(sw.io, cigar(read))
     # RNEXT
