@@ -1,5 +1,3 @@
-using StatsBase: WeightVec, sample, sample!
-
 function run_alignment(profile::AlignmentProfile, index, read_file, output)
     format = endswith(read_file, ".fa") ? FASTA :
              endswith(read_file, ".fq") ? FASTQ :
@@ -20,6 +18,7 @@ function run_alignment(profile::AlignmentProfile, index, read_file, output)
             write(out, get(aln))
         end
     end
+    #Profile.print(STDERR, format=:flat, cols=10000)
     info("finished: ", t, " s")
     info(@sprintf("%.1f", n_reads / t), " reads/s")
 end
@@ -28,6 +27,11 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     # sarch seed hits
     search_seed!(rs,  true, index, profile.seed_interval, profile.max_seed_hit)
     search_seed!(rs, false, index, profile.seed_interval, profile.max_seed_hit)
+
+    if !hashit(rs)
+        #search_seed!(rs,  true, index, profile.seed_interval, 4profile.max_seed_hit)
+        #search_seed!(rs, false, index, profile.seed_interval, 4profile.max_seed_hit)
+    end
 
     if !hashit(rs)
         # no clue
@@ -101,8 +105,8 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, model)
 
     alns = paralign_score(
         model.submat,
-        model.gap_open_penalty,
-        model.gap_extend_penalty,
+        model.gap_open,
+        model.gap_extend,
         seq_t(read[1:seed_start(seedhit)-1], true),
         refseqs
     )
@@ -119,8 +123,8 @@ function score_seed!(rs::ReadState, seedhit::SeedHit, index, model)
 
     alns = paralign_score(
         model.submat,
-        model.gap_open_penalty,
-        model.gap_extend_penalty,
+        model.gap_open,
+        model.gap_extend,
         seq_t(read[seed_stop(seedhit)+1:end], false),
         refseqs
     )

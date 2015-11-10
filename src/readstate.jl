@@ -14,7 +14,6 @@ type ReadState
     # best alignments
     seedhit_queue::IntervalHeap{SeedHitExt}
     # best alignment
-    #alignment::Nullable{AlignedSequence}
     alignment::Nullable{AlignedRead}
     function ReadState()
         new(
@@ -151,14 +150,62 @@ function Base.next(iter::PermutedSeedHitIterator, i)
 end
 
 function each_prioritized_seedhit(rs::ReadState, index)
+    clusters, densities = find_clusters(rs, true, index.fmindex)
+    clusters′, densities′ = find_clusters(rs, false, index.fmindex)
+    append!(clusters, clusters′)
+    append!(densities, densities′)
+    ord = sortperm(densities, rev=true)
+    #@show densities[ord]
     hits = Vector{Int}()
-    append!(hits, 1:length(rs.seedhits))
-    append!(hits, -1:-1:-length(rs.seedhits′))
-    priority = Vector{Float64}()
-    append!(priority, prioritize_seeds(rs, true,  index.fmindex))
-    append!(priority, prioritize_seeds(rs, false, index.fmindex))
-    ord = sortperm(priority, rev=true)
-    return PermutedSeedHitIterator(rs, hits[ord])
+    for i in ord
+        maxsize = 0
+        maxj = 0
+        for j in clusters[i]
+            size = count(j > 0 ? rs.seedhits[j] : rs.seedhits′[-j])
+            if size > maxsize
+                maxsize = size
+                maxj = j
+            end
+        end
+        push!(hits, maxj)
+    end
+    return PermutedSeedHitIterator(rs, hits)
+end
+
+function find_clusters(rs, forward, fmindex)
+    seedhits = forward ? rs.seedhits : rs.seedhits′
+    inds = Vector{Int}()
+    locs = Vector{Int}()
+    for (i, seedhit) in enumerate(seedhits)
+        seedlocs = Vector{Int}(count(seedhit))
+        for j in 1:count(seedhit)
+            loc = FMIndexes.sa_value(seedhit[j], fmindex) + 1
+            push!(inds, forward ? i : -i)
+            push!(locs, loc)
+            seedlocs[j] = loc
+        end
+        seedhits[i] = attach(seedhit, seedlocs)
+    end
+    n_seedhits = length(seedhits)
+    ord = sortperm(locs)
+    # a cluster holds seedhit indices
+    clusters = Vector{Int}[]
+    densities = Int[]
+    i = 1
+    while i ≤ endof(ord)
+        startpos = locs[ord[i]]
+        cluster = [inds[ord[i]]]
+        density = 1
+        i += 1
+        while i ≤ endof(ord) && (locs[ord[i]] - startpos) ≤ readlen(rs)
+            push!(cluster, inds[ord[i]])
+            density += 1
+            i += 1
+        end
+        push!(clusters, cluster)
+        push!(densities, density)
+    end
+    return clusters, densities
 end
 
 function prioritize_seeds(rs, forward, fmindex)
@@ -176,21 +223,17 @@ function prioritize_seeds(rs, forward, fmindex)
         seedhits[i] = attach(seedhit, seedlocs)
     end
     n_seedhits = length(seedhits)
-    #simmat = zeros(Int, n_seedhits, n_seedhits)
-    priority = zeros(n_seedhits)
     ord = sortperm(locs)
-    for i in 1:endof(ord)
-        cent = locs[ord[i]]
-        for j in i+1:endof(ord)
-            if locs[ord[j]] - cent ≥ readlen(rs)
-                break
-            end
-            priority[inds[ord[i]]] += 1
-            priority[inds[ord[j]]] += 1
-            #simmat[inds[ord[i]],inds[ord[j]]] += 1
-            #simmat[inds[ord[j]],inds[ord[i]]] += 1
+    # starting positions of clusters
+    clusters = Int[]
+    i = 1
+    while i ≤ endof(ord)
+        startpos = locs[ord[i]]
+        push!(clusters, startpos)
+        i += 1
+        while i ≤ endof(ord) && locs[ord[i]] - startpos ≤ readlen(rs)
+            i += 1
         end
     end
-    #@show simmat
-    return priority
+    return clusters
 end
