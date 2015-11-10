@@ -27,8 +27,9 @@ end
 
 function setrecord!(rs::ReadState, record)
     rs.record = record
-    rs.read = record.seq
-    rs.read′ = reverse_complement(record.seq)
+    read = immutable!(record.seq)
+    rs.read = read
+    rs.read′ = reverse_complement(read)
     empty!(rs.seedhits)
     empty!(rs.seedhits′)
     rs.n_hits = 0
