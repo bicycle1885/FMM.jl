@@ -116,6 +116,14 @@ function findprev_in_block(block, bitid)
 end
 
 function hasn_within(nmask::NMask, r::UnitRange{Int})
+    # fast heuristic to check that there is no 'N' within the range
+    lo, _ = block_bit(first(r))
+    hi, _ = block_bit(last(r))
+    if (lo     == hi && !nmask.blockmask[lo]) ||
+       (lo + 1 == hi && !nmask.blockmask[lo] && !nmask.blockmask[hi])
+        return false
+    end
+    # slower but exact algorithm to check
     return findnext(nmask, first(r)) in r
 end
 

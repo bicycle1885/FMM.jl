@@ -33,7 +33,7 @@ end
 
 const empty_ns = falses(1000)
 
-# create a subsequence between
+# create a subsequence
 function subseq(seq::GenomicSequence, len::Int, offset::Int, reversed::Bool)
     if reversed
         r = offset-len+2:offset+1
@@ -41,8 +41,10 @@ function subseq(seq::GenomicSequence, len::Int, offset::Int, reversed::Bool)
         r = offset+1:offset+len
     end
     if hasn_within(seq.nmask, r)
+        # very rare branch in practice
         ns = make_nbitmap(seq.nmask, r)
     else
+        # most often goes through this branch
         if len > length(empty_ns)
             resize!(empty_ns, len)
             fill!(empty_ns, false)
