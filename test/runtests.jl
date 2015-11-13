@@ -11,6 +11,8 @@ else
     const Test = BaseTestNext
 end
 
+testfile(filename) = Pkg.dir("FMM", "test", filename)
+
 @testset "data structures" begin
     @testset "NMask" begin
         bv = BitVector([true, false, true, false, false])
@@ -60,7 +62,7 @@ end
     end
 
     @testset "Genome" begin
-        mini = FMM.load_genome(Pkg.dir("FMM", "test", "mini.fasta"))
+        mini = FMM.load_genome(testfile("mini.fasta"))
         @test length(mini) === 52
         @test collect(FMM.eachname(mini)) == ["chr1", "chr2", "chr3"]
 
@@ -93,7 +95,7 @@ end
 
     @testset "GenomeIndex" begin
         k = 4
-        index = FMM.build_index(Pkg.dir("FMM", "test", "mini.fasta"), k)
+        index = FMM.build_index(testfile("mini.fasta"), k)
 
         sarange = index.sa_table[kmer(dna"GATT")]
         @test isa(sarange, UnitRange)
@@ -126,5 +128,40 @@ end
         @test profile.score_model.submat[DNA_A,DNA_C] === -3
         @test profile.score_model16.submat[DNA_A,DNA_A] === Int16(0)
         @test profile.score_model16.submat[DNA_A,DNA_C] === Int16(-3)
+    end
+end
+
+@testset "alignment" begin
+    profile = FMM.AlignmentProfile(
+        seed_interval=4,
+        max_seed_hit=16,
+        max_seed_try=4,
+        matching_score=0,
+        mismatching_score=-3,
+        gap_open_penalty=5,
+        gap_extend_penalty=3
+    )
+    k = 4
+    index = FMM.build_index(testfile("mini.fasta"), k)
+
+    @testset "complete match" begin
+        reads = open(testfile("reads.fasta"), FASTA)
+        readstate = FMM.ReadState()
+        n_reads = 0
+        for record in reads
+            #@show record
+            FMM.setrecord!(readstate, record)
+            aln = FMM.align_read!(readstate, index, profile)
+            n_reads += 1
+            ans = match(r"(\w+):(\d+) (\w+)", bytestring(record.metadata.description))
+            @test !isnull(aln)
+            let aln = get(aln)
+                chr, pos = FMM.locus(index.genome, FMM.firstpos(aln))
+                @test chr == ans[1]
+                @test pos == parse(Int, ans[2])
+                @test FMM.isforward(aln) == (ans[3] == "forward")
+            end
+        end
+        @test n_reads === 6
     end
 end
