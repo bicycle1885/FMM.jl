@@ -4,10 +4,11 @@ function run_alignment(profile::AlignmentProfile, index, read_file, output)
              error("unknown format")
     reads = open(read_file, format)
     readstate = ReadState()
-    out = SAMWriter(STDOUT, index.genome)
+    out = SAMWriter(output, index.genome)
     n_reads = 0
     info("aligning reads")
     writeheader(out)
+    #Profile.init(delay=0.01)
     t = @elapsed for rec in reads
         setrecord!(readstate, rec)
         aln = align_read!(readstate, index, profile)
@@ -18,7 +19,7 @@ function run_alignment(profile::AlignmentProfile, index, read_file, output)
             write(out, get(aln))
         end
     end
-    #Profile.print(STDERR, format=:flat, cols=10000)
+    #Profile.print(STDERR, format=:tree, cols=100000)
     info("finished: ", t, " s")
     info(@sprintf("%.1f", n_reads / t), " reads/s")
 end
@@ -29,8 +30,8 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     search_seed!(rs, false, index, profile.seed_interval, profile.max_seed_hit)
 
     if !hashit(rs)
-        #search_seed!(rs,  true, index, profile.seed_interval, 4profile.max_seed_hit)
-        #search_seed!(rs, false, index, profile.seed_interval, 4profile.max_seed_hit)
+        search_seed!(rs,  true, index, profile.seed_interval, 4profile.max_seed_hit)
+        search_seed!(rs, false, index, profile.seed_interval, 4profile.max_seed_hit)
     end
 
     if !hashit(rs)
@@ -40,14 +41,22 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
 
     # find best alignment from matching seeds
     best = typemin(Int)
+    mis = mismatching_score(profile)
     achievable = readlen(rs) * maximum(profile.score_model.submat)
     ntry = 0
     for seedhit in each_prioritized_seedhit(rs, index)
-        if ntry ≥ profile.max_seed_try
-            break
+        if best < 3mis
+            ntry ≥ 2^3 * profile.max_seed_try && break
+        elseif best < 2mis
+            ntry ≥ 2^2 * profile.max_seed_try && break
+        elseif best < 1mis
+            ntry ≥ 2^1 * profile.max_seed_try && break
+        else
+            ntry ≥ profile.max_seed_try && break
         end
         score = score_seed!(rs, seedhit, index, profile.score_model16)
         if score ≥ achievable
+            best = score
             break
         elseif score > best
             best = score
