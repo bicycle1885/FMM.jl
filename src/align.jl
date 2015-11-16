@@ -26,12 +26,21 @@ end
 
 function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     # sarch seed hits
-    search_seed!(rs,  true, index, profile.seed_interval, profile.max_seed_hit)
-    search_seed!(rs, false, index, profile.seed_interval, profile.max_seed_hit)
+    seed_interval = profile.seed_interval
+    max_seed_hit = profile.max_seed_hit
+    search_seed!(rs,  true, index, seed_interval, max_seed_hit)
+    search_seed!(rs, false, index, seed_interval, max_seed_hit)
 
     if !hashit(rs)
-        search_seed!(rs,  true, index, profile.seed_interval, 4profile.max_seed_hit)
-        search_seed!(rs, false, index, profile.seed_interval, 4profile.max_seed_hit)
+        # shift the seed window
+        shift = div(seed_interval, 2)
+        search_seed!(rs,  true, index, seed_interval, 4max_seed_hit, shift)
+        search_seed!(rs, false, index, seed_interval, 4max_seed_hit, shift)
+    end
+
+    if !hashit(rs)
+        search_seed!(rs,  true, index, 2seed_interval, 8max_seed_hit)
+        search_seed!(rs, false, index, 2seed_interval, 8max_seed_hit)
     end
 
     if !hashit(rs)
@@ -75,9 +84,9 @@ function align_read!{T,k}(rs::ReadState, index::GenomeIndex{T,k}, profile)
     return Nullable(AlignedRead(record(rs), alnseq, isforward(bestseed), map_quality(rs, profile)))
 end
 
-function search_seed!{T,k}(rs, forward, index::GenomeIndex{T,k}, interval, maxseed)
+function search_seed!{T,k}(rs, forward, index::GenomeIndex{T,k}, interval, maxseed, shift=0)
     read = forward ? forward_read(rs) : reverse_read(rs)
-    for s in endof(read):-interval:k
+    for s in endof(read)-shift:-interval:k
         kmer = read[s-k+1:s]
         if hasn(kmer)
             continue

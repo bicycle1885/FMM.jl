@@ -30,10 +30,9 @@ end
 
 function run_align(genome_file, read_file)
     profile = FMM.AlignmentProfile(
-        #seed_interval=ceil(Int, 1 + 1.15 * sqrt(100)),
-        seed_interval=12,
-        max_seed_hit=16,
-        max_seed_try=4,
+        seed_interval=13,
+        max_seed_hit=8,
+        max_seed_try=8,
         # alignment scores
         matching_score=0,
         mismatching_score=-6,
